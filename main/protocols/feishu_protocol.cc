@@ -299,19 +299,22 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 info += " " + std::string(status->valuestring);
             }
             Application::GetInstance().Schedule([display, info]() {
-                display->SetStatus(info);
+                display->SetStatus(info.c_str());
             });
         }
     } else if (type_str == "ai_state") {
         auto state = cJSON_GetObjectItem(root, "state");
         if (cJSON_IsString(state)) {
             std::string st = state->valuestring;
-            Application::GetInstance().Schedule([st]() {
+            Application::GetInstance().Schedule([display, st]() {
                 auto& app = Application::GetInstance();
                 if (st == "listening") {
                     app.SetDeviceState(kDeviceStateListening);
                 } else if (st == "thinking") {
-                    app.SetDeviceState(kDeviceStateThinking);
+                    if (display) {
+                        display->SetStatus("AI思考中...");
+                        display->SetEmotion("thinking");
+                    }
                 } else if (st == "speaking") {
                     app.SetDeviceState(kDeviceStateSpeaking);
                 } else {
