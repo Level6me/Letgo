@@ -1,4 +1,5 @@
 #include "wifi_board.h"
+#include "wifi_manager.h"
 #include "display/lcd_display.h"
 #include "codecs/es8311_audio_codec.h"
 #include "application.h"
@@ -141,8 +142,11 @@ private:
             TouchActivity();
             Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
-                auto network = GetNetwork();
-                std::string ip = network ? network->GetIpAddress() : "未分配";
+                auto& wifi = WifiManager::GetInstance();
+                std::string ip = wifi.GetIpAddress();
+                if (ip.empty()) {
+                    ip = "未分配";
+                }
                 bool connected = app.IsFeishuConnected();
                 std::string gw = app.GetFeishuGatewayIp();
 
