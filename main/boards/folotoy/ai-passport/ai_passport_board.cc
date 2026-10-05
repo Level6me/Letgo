@@ -151,7 +151,7 @@ private:
                 if (app.GetDeviceState() == kDeviceStateSpeaking) {
                     app.AbortSpeaking(kAbortReasonNone);
                 }
-                app.StartListening(kListeningModeManualStop);
+                app.StartListening();
             });
         });
         ok->OnPressUp([this]() {
