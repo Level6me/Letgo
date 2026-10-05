@@ -1368,7 +1368,8 @@ void Application::ResetProtocol() {
 }
 
 void Application::SendFeishuButtonEvent(const std::string& button, const std::string& action) {
-    if (auto feishu = dynamic_cast<FeishuProtocol*>(protocol_.get())) {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
         feishu->SendButtonEvent(button, action);
     }
 }
