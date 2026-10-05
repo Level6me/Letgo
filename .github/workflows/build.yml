@@ -96,7 +96,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          cp build/merged-binary.bin build/FoloToy-AI-Passport-full.bin
-          TAG="fw-${{ github.run_id }}"
-          gh release create "$TAG" build/FoloToy-AI-Passport-full.bin --title "Release $TAG" --notes "FoloToy AI Passport xiaozhi-based firmware build for run ${{ github.run_id }}"
+          python3 scripts/publish_release.py build/merged-binary.bin
