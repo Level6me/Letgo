@@ -28,7 +28,7 @@
 
 namespace {
 
-constexpr char kActivationQrUrl[] = "https://xiaozhi.me";
+constexpr char kActivationQrUrl[] = "";
 
 void HideActivationObjects(lv_obj_t* qrcode, lv_obj_t* hint, lv_obj_t* site, lv_obj_t* code) {
     if (qrcode != nullptr) {
@@ -1317,7 +1317,7 @@ void LcdDisplay::ShowActivationCode(const char* code, const char* message) {
         lv_obj_set_style_text_font(activation_site_label_, text_font, 0);
         lv_obj_set_style_text_align(activation_site_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(activation_site_label_, theme->text_color(), 0);
-        lv_label_set_text(activation_site_label_, "或打开 xiaozhi.me\n输入下方激活码");
+        lv_label_set_text(activation_site_label_, "飞书硬件协同控制台\n微信扫码配置网络");
         lv_obj_align(activation_site_label_, LV_ALIGN_TOP_MID, 0, 216);
     }
     if (activation_code_label_ == nullptr) {

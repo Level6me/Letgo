@@ -142,14 +142,12 @@ void FeishuProtocol::ConnectToGateway(const std::string& ip, int port) {
     websocket_->OnData([this](const char* data, size_t len, bool binary) {
         last_incoming_time_ = std::chrono::steady_clock::now();
         if (binary) {
-            if (on_incoming_audio_ != nullptr && len > 0) {
-                // 下行 TTS 二进制音频流
-                on_incoming_audio_(std::make_unique<AudioStreamPacket>(AudioStreamPacket{
-                    .sample_rate = server_sample_rate_,
-                    .frame_duration = server_frame_duration_,
-                    .timestamp = 0,
-                    .payload = std::vector<uint8_t>((uint8_t*)data, (uint8_t*)data + len)
-                }));
+            if (len >= 2) {
+                // 收到飞书服务端下发的 16kHz 16bit 单声道 PCM 流，直接塞入播放队列
+                size_t sample_count = len / sizeof(int16_t);
+                const int16_t* pcm_samples = reinterpret_cast<const int16_t*>(data);
+                std::vector<int16_t> pcm_vec(pcm_samples, pcm_samples + sample_count);
+                Application::GetInstance().GetAudioService().PushPcmToPlaybackQueue(std::move(pcm_vec));
             }
         } else {
             HandleServerJson(data, len);
@@ -302,6 +300,13 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 display->SetStatus(info.c_str());
             });
         }
+    } else if (type_str == "handshake_ack") {
+        if (display) {
+            Application::GetInstance().Schedule([display]() {
+                display->SetStatus("飞书控制台就绪");
+                display->SetEmotion("neutral");
+            });
+        }
     } else if (type_str == "ai_state") {
         auto state = cJSON_GetObjectItem(root, "state");
         if (cJSON_IsString(state)) {
@@ -310,6 +315,10 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 auto& app = Application::GetInstance();
                 if (st == "listening") {
                     app.SetDeviceState(kDeviceStateListening);
+                    if (display) {
+                        display->SetStatus("正在聆听...");
+                        display->SetEmotion("listening");
+                    }
                 } else if (st == "thinking") {
                     if (display) {
                         display->SetStatus("AI思考中...");
@@ -317,8 +326,15 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                     }
                 } else if (st == "speaking") {
                     app.SetDeviceState(kDeviceStateSpeaking);
+                    if (display) {
+                        display->SetStatus("AI播报中...");
+                        display->SetEmotion("speaking");
+                    }
                 } else {
                     app.SetDeviceState(kDeviceStateIdle);
+                    if (display) {
+                        display->SetEmotion("neutral");
+                    }
                 }
             });
         }
@@ -328,12 +344,18 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
             std::string msg = text->valuestring;
             Application::GetInstance().Schedule([display, msg]() {
                 display->SetChatMessage("assistant", msg.c_str());
+                display->SetEmotion("speaking");
+                display->SetStatus("AI播报中...");
                 Application::GetInstance().SetDeviceState(kDeviceStateSpeaking);
             });
         }
     } else if (type_str == "ai_speech_end") {
-        Application::GetInstance().Schedule([]() {
+        Application::GetInstance().Schedule([display]() {
             Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+            if (display) {
+                display->SetEmotion("neutral");
+                display->SetChatMessage("system", "");
+            }
         });
     } else if (type_str == "alert_popup") {
         auto title = cJSON_GetObjectItem(root, "title");

@@ -474,7 +474,24 @@ void AudioService::OpusCodecTask() {
             packet->sample_rate = 16000;
             packet->timestamp = task.timestamp;
 
-            if (opus_encoder_ != nullptr && task.pcm.size() == encoder_frame_size_) {
+            if (task.type == kAudioTaskTypeEncodeToSendQueue) {
+                // 飞书硬件控制台专属：直接上报 16kHz 16bit 单声道 PCM 原始音频流，零 CPU 编码消耗
+                const uint8_t* pcm_raw = reinterpret_cast<const uint8_t*>(task.pcm.data());
+                size_t pcm_byte_size = task.pcm.size() * sizeof(int16_t);
+                packet->payload.assign(pcm_raw, pcm_raw + pcm_byte_size);
+
+                {
+                    std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
+                    if (audio_send_queue_.size() >= MAX_SEND_PACKETS_IN_QUEUE) {
+                        audio_send_queue_.pop_front();
+                    }
+                    audio_send_queue_.push_back(std::move(packet));
+                }
+                if (callbacks_.on_send_queue_available) {
+                    callbacks_.on_send_queue_available();
+                }
+                debug_statistics_.encode_count++;
+            } else if (opus_encoder_ != nullptr && task.pcm.size() == encoder_frame_size_) {
                 packet->payload.resize(encoder_outbuf_size_);
                 esp_audio_enc_in_frame_t in = {
                     .buffer = (uint8_t*)(task.pcm.data()),
@@ -489,20 +506,7 @@ void AudioService::OpusCodecTask() {
                 if (ret == ESP_AUDIO_ERR_OK) {
                     packet->payload.resize(out.encoded_bytes);
 
-                    if (task.type == kAudioTaskTypeEncodeToSendQueue) {
-                        {
-                            std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
-                            /* Never let a full send queue stall encoding: stale realtime
-                             * audio is useless to the server, so drop the oldest packet. */
-                            if (audio_send_queue_.size() >= MAX_SEND_PACKETS_IN_QUEUE) {
-                                audio_send_queue_.pop_front();
-                            }
-                            audio_send_queue_.push_back(std::move(packet));
-                        }
-                        if (callbacks_.on_send_queue_available) {
-                            callbacks_.on_send_queue_available();
-                        }
-                    } else if (task.type == kAudioTaskTypeEncodeToTestingQueue) {
+                    if (task.type == kAudioTaskTypeEncodeToTestingQueue) {
                         bool testing_queue_full = false;
                         {
                             std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
@@ -624,6 +628,34 @@ bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> pa
     }
     playback_drained_notified_ = false;
     audio_decode_queue_.push_back(std::move(packet));
+    audio_queue_cv_.notify_all();
+    return true;
+}
+
+bool AudioService::PushPcmToPlaybackQueue(std::vector<int16_t>&& pcm, bool wait) {
+    std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+    const uint32_t generation = playback_generation_;
+    if (audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
+        if (wait) {
+            audio_queue_cv_.wait(lock, [this, generation]() {
+                return service_stopped_.load() || generation != playback_generation_ ||
+                       audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE;
+            });
+        } else {
+            return false;
+        }
+    }
+    if (service_stopped_.load() || generation != playback_generation_) {
+        return false;
+    }
+    playback_drained_notified_ = false;
+    AudioTask task;
+    task.type = kAudioTaskTypeDecodeToPlaybackQueue;
+    task.pcm = std::move(pcm);
+    task.timestamp = 0;
+    task.playback_id = 0;
+    task.media_position_ms = 0;
+    audio_playback_queue_.push_back(std::move(task));
     audio_queue_cv_.notify_all();
     return true;
 }

@@ -118,6 +118,7 @@ private:
             TouchActivity();
             Application::GetInstance().Schedule([this]() {
                 GetDisplay()->ShowNotification("刷新看板数据中...", 2000);
+                Application::GetInstance().SendFeishuButtonEvent("up", "short_press");
             });
         });
         up->OnLongPress([this]() {
@@ -133,13 +134,15 @@ private:
             TouchActivity();
             Application::GetInstance().Schedule([this]() {
                 GetDisplay()->ShowNotification("切换工程视图", 1500);
+                Application::GetInstance().SendFeishuButtonEvent("down", "short_press");
             });
         });
         down->OnLongPress([this]() {
             TouchActivity();
             Application::GetInstance().Schedule([]() {
                 ESP_LOGW(TAG, "Physical Emergency Stop Triggered!");
-                Application::GetInstance().Alert("EMERGENCY", "Physical Stop Sent!\nAborted all tasks.", "danger");
+                Application::GetInstance().SendFeishuButtonEvent("down", "long_press");
+                Application::GetInstance().Alert("EMERGENCY", "Physical Stop Sent!\nAborted all tasks.", "danger", Lang::Sounds::OGG_EXCLAMATION);
             });
         });
 
@@ -150,6 +153,7 @@ private:
                 auto& app = Application::GetInstance();
                 if (app.GetDeviceState() == kDeviceStateSpeaking) {
                     app.AbortSpeaking(kAbortReasonNone);
+                    app.GetAudioService().ResetDecoder();
                 }
                 app.StartListening();
             });

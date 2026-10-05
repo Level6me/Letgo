@@ -66,7 +66,7 @@ void Application::Initialize() {
     auto display = board.GetDisplay();
     display->SetupUI();
     // Print board name/version info
-    display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
+    display->SetChatMessage("system", "Antigravity Feishu Console");
 
     // Setup the audio service
     auto codec = board.GetAudioCodec();
@@ -331,29 +331,26 @@ void Application::HandleNetworkDisconnectedEvent() {
 }
 
 void Application::HandleActivationDoneEvent() {
-    ESP_LOGI(TAG, "Activation done");
+    ESP_LOGI(TAG, "Activation done - Feishu ready");
 
     SystemInfo::PrintHeapStats();
     SetDeviceState(kDeviceStateIdle);
 
-    has_server_time_ = ota_->HasServerTime();
+    has_server_time_ = false;
 
-    // Protocol start may have already raised MAIN_EVENT_ERROR. Do not replace
-    // that alert with the "ready" UI/sound — the main loop can process both
-    // events back-to-back because the activation task is lower priority.
     const bool has_error = !last_error_message_.empty();
     if (!has_error) {
         auto display = Board::GetInstance().GetDisplay();
         display->ClearActivationCode();
-        display->SetStatus(Lang::Strings::STANDBY);
+        display->SetStatus("飞书控制台就绪");
         display->SetEmotion("neutral");
-        std::string message = std::string(Lang::Strings::VERSION) + ota_->GetCurrentVersion();
-        display->ShowNotification(message.c_str());
+        display->ShowNotification("Feishu Console Ready", 3000);
         display->SetChatMessage("system", "");
     }
 
-    // Release OTA object after activation is complete
-    ota_.reset();
+    if (ota_) {
+        ota_.reset();
+    }
     auto& board = Board::GetInstance();
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
 
@@ -366,16 +363,8 @@ void Application::HandleActivationDoneEvent() {
 }
 
 void Application::ActivationTask() {
-    // Create OTA object for activation process
-    ota_ = std::make_unique<Ota>();
-
-    // Check for new assets version
-    CheckAssetsVersion();
-
-    // Check for new firmware version
-    CheckNewVersion();
-
-    // Initialize the protocol
+    ESP_LOGI(TAG, "Starting Feishu Console Protocol initialization directly...");
+    // 彻底跳过小智云端 OTA 检测与激活码绑定循环，直接启动飞书硬件控制台协议
     InitializeProtocol();
 
     // Signal completion to main loop
@@ -541,18 +530,17 @@ void Application::InitializeProtocol() {
     auto display = board.GetDisplay();
     auto codec = board.GetAudioCodec();
 
-    display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
+    display->SetStatus("连接飞书控制台...");
 
-    if (ota_->HasMqttConfig()) {
-        protocol_ = std::make_unique<MqttProtocol>();
-    } else if (ota_->HasWebsocketConfig()) {
-        protocol_ = std::make_unique<WebsocketProtocol>();
-    } else {
-        ESP_LOGI(TAG, "No OTA server configured, using Feishu Bot Bridge Protocol");
-        protocol_ = std::make_unique<FeishuProtocol>();
-    }
+    ESP_LOGI(TAG, "Initializing Feishu Bot Hardware Console Protocol");
+    protocol_ = std::make_unique<FeishuProtocol>();
 
-    protocol_->OnConnected([this]() { DismissAlert(); });
+    protocol_->OnConnected([this]() {
+        DismissAlert();
+        auto display = Board::GetInstance().GetDisplay();
+        display->SetStatus("飞书控制台已连接");
+        display->SetEmotion("neutral");
+    });
 
     protocol_->OnNetworkError([this](const std::string& message) {
         last_error_message_ = message;
@@ -1377,4 +1365,10 @@ void Application::ResetProtocol() {
         // Reset protocol
         protocol_.reset();
     });
+}
+
+void Application::SendFeishuButtonEvent(const std::string& button, const std::string& action) {
+    if (auto feishu = dynamic_cast<FeishuProtocol*>(protocol_.get())) {
+        feishu->SendButtonEvent(button, action);
+    }
 }
