@@ -132,7 +132,7 @@ private:
         up->OnLongPress([this]() {
             TouchActivity();
             Application::GetInstance().Schedule([this]() {
-                GetDisplay()->ShowNotification("📶 进入微信蓝牙配网模式...", 4000);
+                GetDisplay()->ShowNotification("📶 进入热点配网模式...", 3000);
                 EnterWifiConfigMode();
             });
         });
