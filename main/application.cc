@@ -10,6 +10,7 @@
 #include "system_info.h"
 #include "text_glyph_payload.h"
 #include "websocket_protocol.h"
+#include "feishu_protocol.h"
 
 #include <driver/gpio.h>
 #include <esp_log.h>
@@ -547,8 +548,8 @@ void Application::InitializeProtocol() {
     } else if (ota_->HasWebsocketConfig()) {
         protocol_ = std::make_unique<WebsocketProtocol>();
     } else {
-        ESP_LOGW(TAG, "No protocol specified in the OTA config, using MQTT");
-        protocol_ = std::make_unique<MqttProtocol>();
+        ESP_LOGI(TAG, "No OTA server configured, using Feishu Bot Bridge Protocol");
+        protocol_ = std::make_unique<FeishuProtocol>();
     }
 
     protocol_->OnConnected([this]() { DismissAlert(); });

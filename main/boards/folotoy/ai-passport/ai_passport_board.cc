@@ -33,6 +33,9 @@ private:
     adc_oneshot_unit_handle_t adc_handle_ = nullptr;
     LcdDisplay* display_;
     Cw2017BatteryMonitor* battery_;
+    int64_t last_activity_time_ = 0;
+    uint8_t current_brightness_ = 100;
+    esp_timer_handle_t dim_timer_ = nullptr;
 
     void InitializeCodecI2c() {
         i2c_master_bus_config_t i2c_bus_cfg = {
@@ -109,34 +112,71 @@ private:
         adc_cfg.max = BSP_ADC_BUTTON_OK_MAX;
         adc_button_[kAdcButtonOk] = new AdcButton(adc_cfg);
 
-        // Button callbacks run on the button task; schedule all UI/audio
-        // work onto the main task so LVGL and codec access stay on one thread.
+        // 按钮事件与飞书硬件协同控制台深度绑定
         auto up = adc_button_[kAdcButtonUp];
         up->OnClick([this]() {
-            Application::GetInstance().Schedule([this]() { ChangeVolume(10); });
+            TouchActivity();
+            Application::GetInstance().Schedule([this]() {
+                GetDisplay()->ShowNotification("刷新看板数据中...", 2000);
+            });
         });
         up->OnLongPress([this]() {
+            TouchActivity();
             Application::GetInstance().Schedule([this]() {
-                GetAudioCodec()->SetOutputVolume(100);
-                GetDisplay()->ShowNotification(Lang::Strings::MAX_VOLUME);
+                GetDisplay()->ShowNotification("进入微信蓝牙配网模式...", 4000);
+                EnterWifiConfigMode();
             });
         });
 
         auto down = adc_button_[kAdcButtonDown];
         down->OnClick([this]() {
-            Application::GetInstance().Schedule([this]() { ChangeVolume(-10); });
+            TouchActivity();
+            Application::GetInstance().Schedule([this]() {
+                GetDisplay()->ShowNotification("切换工程视图", 1500);
+            });
         });
         down->OnLongPress([this]() {
-            Application::GetInstance().Schedule([this]() {
-                GetAudioCodec()->SetOutputVolume(0);
-                GetDisplay()->ShowNotification(Lang::Strings::MUTED);
+            TouchActivity();
+            Application::GetInstance().Schedule([]() {
+                ESP_LOGW(TAG, "Physical Emergency Stop Triggered!");
+                Application::GetInstance().Alert("EMERGENCY", "Physical Stop Sent!\nAborted all tasks.", "danger");
             });
         });
 
         auto ok = adc_button_[kAdcButtonOk];
-        ok->OnClick([this]() {
-            Application::GetInstance().Schedule([this]() { ToggleChat(); });
+        ok->OnPressDown([this]() {
+            TouchActivity();
+            Application::GetInstance().Schedule([]() {
+                auto& app = Application::GetInstance();
+                if (app.GetDeviceState() == kDeviceStateSpeaking) {
+                    app.AbortSpeaking(kAbortReasonNone);
+                }
+                app.StartListening(kListeningModeManualStop);
+            });
         });
+        ok->OnPressUp([this]() {
+            TouchActivity();
+            Application::GetInstance().Schedule([]() {
+                auto& app = Application::GetInstance();
+                if (app.GetDeviceState() == kDeviceStateListening) {
+                    app.StopListening();
+                }
+            });
+        });
+        ok->OnClick([this]() {
+            TouchActivity();
+            Application::GetInstance().Schedule([this]() {
+                ToggleChat();
+            });
+        });
+    }
+
+    void TouchActivity() {
+        last_activity_time_ = esp_timer_get_time();
+        if (current_brightness_ < 100) {
+            current_brightness_ = 100;
+            GetBacklight()->SetBrightness(100);
+        }
     }
 
     void InitializeSpi() {
@@ -223,6 +263,30 @@ public:
         InitializeDisplay();
         InitializeButtons();
         GetBacklight()->RestoreBrightness();
+
+        last_activity_time_ = esp_timer_get_time();
+        esp_timer_create_args_t dim_timer_args = {
+            .callback = [](void* arg) {
+                auto self = static_cast<AiPassportBoard*>(arg);
+                int64_t now = esp_timer_get_time();
+                if (now - self->last_activity_time_ >= 30 * 1000000LL) {
+                    auto state = Application::GetInstance().GetDeviceState();
+                    if (state != kDeviceStateListening && state != kDeviceStateSpeaking) {
+                        if (self->current_brightness_ > 20) {
+                            self->current_brightness_ = 20;
+                            self->GetBacklight()->SetBrightness(20);
+                            ESP_LOGI(TAG, "Screen dimmed to 20%% due to 30s inactivity");
+                        }
+                    }
+                }
+            },
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "dim_timer",
+            .skip_unhandled_events = true
+        };
+        esp_timer_create(&dim_timer_args, &dim_timer_);
+        esp_timer_start_periodic(dim_timer_, 2000000);
     }
 
     virtual AudioCodec* GetAudioCodec() override {

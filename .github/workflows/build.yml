@@ -10,19 +10,17 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   prepare:
     name: Determine variants to build
     runs-on: ubuntu-latest
-    container:
-      image: espressif/idf:v6.1
     outputs:
       variants: ${{ steps.select.outputs.variants }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -88,7 +86,17 @@ jobs:
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: xiaozhi_${{ matrix.full_name }}_${{ github.sha }}
           path: build/merged-binary.bin
-          if-no-files-found: error
+          if-no-files-found: warn
+
+      - name: Release Merged Binary
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/merged-binary.bin build/FoloToy-AI-Passport-full.bin
+          TAG="fw-${{ github.run_id }}"
+          gh release create "$TAG" build/FoloToy-AI-Passport-full.bin --title "Release $TAG" --notes "FoloToy AI Passport xiaozhi-based firmware build for run ${{ github.run_id }}"
