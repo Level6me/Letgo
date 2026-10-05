@@ -119,6 +119,9 @@ public:
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
     void SendFeishuButtonEvent(const std::string& button, const std::string& action);
+    bool IsFeishuConnected();
+    std::string GetFeishuGatewayIp();
+    void TriggerFeishuDiscovery();
     
     /**
      * Reset protocol resources (thread-safe)

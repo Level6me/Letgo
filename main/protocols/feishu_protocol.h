@@ -28,6 +28,9 @@ public:
     bool SendButtonEvent(const std::string& button, const std::string& action);
     bool SendEmergencyStop();
     bool SendBargeIn();
+    bool IsConnected() const { return connected_; }
+    const std::string& GetGatewayIp() const { return gateway_ip_; }
+    void TriggerDiscovery();
 
 private:
     std::unique_ptr<WebSocket> websocket_;

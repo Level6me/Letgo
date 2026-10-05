@@ -117,14 +117,21 @@ private:
         up->OnClick([this]() {
             TouchActivity();
             Application::GetInstance().Schedule([this]() {
-                GetDisplay()->ShowNotification("刷新看板数据中...", 2000);
-                Application::GetInstance().SendFeishuButtonEvent("up", "short_press");
+                auto& app = Application::GetInstance();
+                if (!app.IsFeishuConnected()) {
+                    GetDisplay()->ShowNotification("🔍 正在搜索飞书控制台...", 3000);
+                    GetDisplay()->SetStatus("搜索飞书控制台中...");
+                    app.TriggerFeishuDiscovery();
+                } else {
+                    GetDisplay()->ShowNotification("🔄 刷新看板数据中...", 2000);
+                    app.SendFeishuButtonEvent("up", "short_press");
+                }
             });
         });
         up->OnLongPress([this]() {
             TouchActivity();
             Application::GetInstance().Schedule([this]() {
-                GetDisplay()->ShowNotification("进入微信蓝牙配网模式...", 4000);
+                GetDisplay()->ShowNotification("📶 进入微信蓝牙配网模式...", 4000);
                 EnterWifiConfigMode();
             });
         });
@@ -133,8 +140,20 @@ private:
         down->OnClick([this]() {
             TouchActivity();
             Application::GetInstance().Schedule([this]() {
-                GetDisplay()->ShowNotification("切换工程视图", 1500);
-                Application::GetInstance().SendFeishuButtonEvent("down", "short_press");
+                auto& app = Application::GetInstance();
+                auto network = GetNetwork();
+                std::string ip = network ? network->GetIpAddress() : "未分配";
+                bool connected = app.IsFeishuConnected();
+                std::string gw = app.GetFeishuGatewayIp();
+
+                std::string info = "本机IP: " + ip;
+                if (connected) {
+                    info += "\n控制台: 已连接 (" + gw + ")";
+                } else {
+                    info += "\n控制台: 未连接 [按上键搜索]";
+                }
+                GetDisplay()->ShowNotification(info.c_str(), 4000);
+                app.SendFeishuButtonEvent("down", "short_press");
             });
         });
         down->OnLongPress([this]() {
@@ -147,7 +166,13 @@ private:
         });
 
         auto ok = adc_button_[kAdcButtonOk];
-        ok->OnPressDown([this]() {
+        ok->OnClick([this]() {
+            TouchActivity();
+            Application::GetInstance().Schedule([this]() {
+                ToggleChat();
+            });
+        });
+        ok->OnLongPress([this]() {
             TouchActivity();
             Application::GetInstance().Schedule([]() {
                 auto& app = Application::GetInstance();
@@ -155,22 +180,9 @@ private:
                     app.AbortSpeaking(kAbortReasonNone);
                     app.GetAudioService().ResetDecoder();
                 }
-                app.StartListening();
-            });
-        });
-        ok->OnPressUp([this]() {
-            TouchActivity();
-            Application::GetInstance().Schedule([]() {
-                auto& app = Application::GetInstance();
-                if (app.GetDeviceState() == kDeviceStateListening) {
-                    app.StopListening();
+                if (app.GetDeviceState() == kDeviceStateIdle) {
+                    app.StartListening();
                 }
-            });
-        });
-        ok->OnClick([this]() {
-            TouchActivity();
-            Application::GetInstance().Schedule([this]() {
-                ToggleChat();
             });
         });
     }

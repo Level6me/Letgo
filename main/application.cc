@@ -342,9 +342,14 @@ void Application::HandleActivationDoneEvent() {
     if (!has_error) {
         auto display = Board::GetInstance().GetDisplay();
         display->ClearActivationCode();
-        display->SetStatus("飞书控制台就绪");
+        if (IsFeishuConnected()) {
+            display->SetStatus("飞书控制台已连接");
+            display->ShowNotification("已连接飞书控制台", 3000);
+        } else {
+            display->SetStatus("未连接控制台 [短按上键搜索]");
+            display->ShowNotification("短按上键搜索飞书控制台", 4000);
+        }
         display->SetEmotion("neutral");
-        display->ShowNotification("Feishu Console Ready", 3000);
         display->SetChatMessage("system", "");
     }
 
@@ -1371,5 +1376,28 @@ void Application::SendFeishuButtonEvent(const std::string& button, const std::st
     if (protocol_) {
         auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
         feishu->SendButtonEvent(button, action);
+    }
+}
+
+bool Application::IsFeishuConnected() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        return feishu->IsConnected();
+    }
+    return false;
+}
+
+std::string Application::GetFeishuGatewayIp() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        return feishu->GetGatewayIp();
+    }
+    return "";
+}
+
+void Application::TriggerFeishuDiscovery() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        feishu->TriggerDiscovery();
     }
 }

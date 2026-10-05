@@ -119,6 +119,25 @@ void FeishuProtocol::StartDiscovery() {
     }, "feishu_discovery", 4096, this, 5, &discovery_task_handle_);
 }
 
+void FeishuProtocol::TriggerDiscovery() {
+    if (connected_) {
+        return;
+    }
+    ESP_LOGI(TAG, "Triggering active UDP gateway discovery probe...");
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (sock >= 0) {
+        int broadcast = 1;
+        setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+        struct sockaddr_in dest_addr;
+        dest_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+        dest_addr.sin_family = AF_INET;
+        dest_addr.sin_port = htons(DEFAULT_FEISHU_PORT);
+        const char* probe = "DISCOVER_FEISHU_PASSPORT";
+        sendto(sock, probe, strlen(probe), 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+        close(sock);
+    }
+}
+
 void FeishuProtocol::ConnectToGateway(const std::string& ip, int port) {
     if (websocket_ && websocket_->IsConnected()) {
         return;
