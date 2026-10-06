@@ -54,6 +54,19 @@
         "HELLO_MY_FRIEND": "你好，我的朋友！",
         "CONNECTION_SUCCESSFUL": "连接成功",
         "FLIGHT_MODE_OFF": "飞行模式已关闭",
-        "FLIGHT_MODE_ON": "飞行模式已开启"
+        "FLIGHT_MODE_ON": "飞行模式已开启",
+        "FEISHU_CONSOLE_READY": "飞书控制台就绪",
+        "FEISHU_CONSOLE_CONNECTED": "飞书控制台已连接",
+        "FEISHU_CONSOLE_NOT_CONNECTED": "未连接控制台 [短按上键搜索]",
+        "FEISHU_SEARCHING": "搜索飞书控制台中...",
+        "FEISHU_SEARCH_NOTICE": "短按上键搜索飞书控制台",
+        "FEISHU_RECORDING": "录音中",
+        "FEISHU_RELEASE_SEND": "松手发送",
+        "FEISHU_SENDING": "正在发送语音至飞书...",
+        "FEISHU_SENT_AWAITING": "已发送至飞书，等待回复...",
+        "FEISHU_SEND_FAILED": "发送飞书失败",
+        "FEISHU_PLAYING": "飞书播报中...",
+        "FEISHU_AI_THINKING": "已发送飞书，AI思考中...",
+        "FEISHU_HOLD_OK_TALK": "长按OK对讲"
     }
 }

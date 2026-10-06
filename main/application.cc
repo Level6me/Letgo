@@ -343,14 +343,15 @@ void Application::HandleActivationDoneEvent() {
         auto display = Board::GetInstance().GetDisplay();
         display->ClearActivationCode();
         if (IsFeishuConnected()) {
-            display->SetStatus("飞书控制台已连接");
-            display->ShowNotification("已连接飞书控制台", 3000);
+            display->SetStatus(Lang::Strings::FEISHU_CONSOLE_READY);
+            display->ShowNotification(Lang::Strings::FEISHU_CONSOLE_CONNECTED, 3000);
+            display->SetChatMessage("system", Lang::Strings::FEISHU_HOLD_OK_TALK);
         } else {
-            display->SetStatus("未连接控制台 [短按上键搜索]");
-            display->ShowNotification("短按上键搜索飞书控制台", 4000);
+            display->SetStatus(Lang::Strings::FEISHU_CONSOLE_NOT_CONNECTED);
+            display->ShowNotification(Lang::Strings::FEISHU_SEARCH_NOTICE, 4000);
+            display->SetChatMessage("system", Lang::Strings::FEISHU_SEARCH_NOTICE);
         }
         display->SetEmotion("neutral");
-        display->SetChatMessage("system", "");
     }
 
     if (ota_) {
@@ -535,7 +536,7 @@ void Application::InitializeProtocol() {
     auto display = board.GetDisplay();
     auto codec = board.GetAudioCodec();
 
-    display->SetStatus("连接飞书控制台...");
+    display->SetStatus(Lang::Strings::FEISHU_SEARCHING);
 
     ESP_LOGI(TAG, "Initializing Feishu Bot Hardware Console Protocol");
     protocol_ = std::make_unique<FeishuProtocol>();
@@ -543,8 +544,9 @@ void Application::InitializeProtocol() {
     protocol_->OnConnected([this]() {
         DismissAlert();
         auto display = Board::GetInstance().GetDisplay();
-        display->SetStatus("飞书控制台已连接");
+        display->SetStatus(Lang::Strings::FEISHU_CONSOLE_READY);
         display->SetEmotion("neutral");
+        display->SetChatMessage("system", Lang::Strings::FEISHU_HOLD_OK_TALK);
     });
 
     protocol_->OnNetworkError([this](const std::string& message) {
@@ -1013,10 +1015,13 @@ void Application::HandleStateChangedEvent() {
                 if (IsFeishuConnected() && feishu_awaiting_reply_) {
                     // Retain Feishu voice sending / awaiting status on display
                 } else {
-                    display->SetStatus(IsFeishuConnected() ? "飞书控制台就绪" : Lang::Strings::STANDBY);
+                    display->SetStatus(IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
                     display->ClearChatMessages();  // Clear messages first
                     display->SetEmotion(
                         "neutral");  // Then set emotion (wechat mode checks child count)
+                    if (IsFeishuConnected()) {
+                        display->SetChatMessage("system", Lang::Strings::FEISHU_HOLD_OK_TALK);
+                    }
                 }
             }
             audio_service_.EnableVoiceProcessing(false);

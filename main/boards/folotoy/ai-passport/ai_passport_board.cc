@@ -61,12 +61,15 @@ private:
                         auto display = self->GetDisplay();
                         if (display) {
                             char status_buf[64];
-                            snprintf(status_buf, sizeof(status_buf), "🎙️ 录音中 %02d:%02d [松手发送]", elapsed_sec / 60, elapsed_sec % 60);
+                            snprintf(status_buf, sizeof(status_buf), "🎙️ %s %02d:%02d [%s]",
+                                     Lang::Strings::FEISHU_RECORDING, elapsed_sec / 60, elapsed_sec % 60,
+                                     Lang::Strings::FEISHU_RELEASE_SEND);
                             display->SetStatus(status_buf);
                             display->SetEmotion("listening");
 
                             char tip_buf[64];
-                            snprintf(tip_buf, sizeof(tip_buf), "🎙️ 正在录音...\n时长: %d 秒\n松开按键发送", elapsed_sec);
+                            snprintf(tip_buf, sizeof(tip_buf), "🎙️ %s: %d 秒\n%s",
+                                     Lang::Strings::FEISHU_RECORDING, elapsed_sec, Lang::Strings::FEISHU_RELEASE_SEND);
                             display->ShowNotification(tip_buf, 1500);
                         }
                     });
@@ -102,8 +105,11 @@ private:
             }
             if (display) {
                 display->ShowNotification("⚠️ 录音时间太短(<1秒)\n已取消发送", 2000);
-                display->SetStatus(app.IsFeishuConnected() ? "飞书控制台就绪" : Lang::Strings::STANDBY);
+                display->SetStatus(app.IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
                 display->SetEmotion("neutral");
+                if (app.IsFeishuConnected()) {
+                    display->SetChatMessage("system", Lang::Strings::FEISHU_HOLD_OK_TALK);
+                }
             }
             return;
         }
@@ -115,9 +121,9 @@ private:
 
         if (display) {
             char tip[80];
-            snprintf(tip, sizeof(tip), "📤 录音完成 (%d秒)\n正在发送语音至飞书...", duration_sec);
+            snprintf(tip, sizeof(tip), "📤 录音完成 (%d秒)\n%s", duration_sec, Lang::Strings::FEISHU_SENDING);
             display->ShowNotification(tip, 3500);
-            display->SetStatus("正在发送语音至飞书...");
+            display->SetStatus(Lang::Strings::FEISHU_SENDING);
             display->SetEmotion("thinking");
         }
     }
@@ -204,8 +210,8 @@ private:
             Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
                 if (!app.IsFeishuConnected()) {
-                    GetDisplay()->ShowNotification("🔍 正在搜索飞书控制台...", 3000);
-                    GetDisplay()->SetStatus("搜索飞书控制台中...");
+                    GetDisplay()->ShowNotification(Lang::Strings::FEISHU_SEARCH_NOTICE, 3000);
+                    GetDisplay()->SetStatus(Lang::Strings::FEISHU_SEARCHING);
                     app.TriggerFeishuDiscovery();
                 } else {
                     GetDisplay()->ShowNotification("🔄 刷新看板数据中...", 2000);
@@ -282,9 +288,16 @@ private:
                 auto& app = Application::GetInstance();
                 app.StartListening();
                 if (GetDisplay()) {
-                    GetDisplay()->SetStatus("🎙️ 录音中 00:00 [松手发送]");
+                    char initial_buf[64];
+                    snprintf(initial_buf, sizeof(initial_buf), "🎙️ %s 00:00 [%s]",
+                             Lang::Strings::FEISHU_RECORDING, Lang::Strings::FEISHU_RELEASE_SEND);
+                    GetDisplay()->SetStatus(initial_buf);
                     GetDisplay()->SetEmotion("listening");
-                    GetDisplay()->ShowNotification("🎙️ 正在录音...\n时长: 0 秒\n松开按键发送", 1500);
+
+                    char tip_buf[64];
+                    snprintf(tip_buf, sizeof(tip_buf), "🎙️ %s: 0 秒\n%s",
+                             Lang::Strings::FEISHU_RECORDING, Lang::Strings::FEISHU_RELEASE_SEND);
+                    GetDisplay()->ShowNotification(tip_buf, 1500);
                 }
                 StartRecordTimer();
             });

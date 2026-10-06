@@ -54,6 +54,19 @@
         "FOUND_NEW_ASSETS": "Found new assets: %s",
         "DOWNLOAD_ASSETS_FAILED": "Failed to download assets",
         "LOADING_ASSETS": "Loading assets...",
-        "HELLO_MY_FRIEND": "Hello, my friend!"
+        "HELLO_MY_FRIEND": "Hello, my friend!",
+        "FEISHU_CONSOLE_READY": "Feishu Console Ready",
+        "FEISHU_CONSOLE_CONNECTED": "Feishu Console Connected",
+        "FEISHU_CONSOLE_NOT_CONNECTED": "Not Connected [Press UP to search]",
+        "FEISHU_SEARCHING": "Searching Feishu Console...",
+        "FEISHU_SEARCH_NOTICE": "Press UP to search Feishu Console",
+        "FEISHU_RECORDING": "Recording",
+        "FEISHU_RELEASE_SEND": "Release to send",
+        "FEISHU_SENDING": "Sending voice to Feishu...",
+        "FEISHU_SENT_AWAITING": "Sent to Feishu, awaiting reply...",
+        "FEISHU_SEND_FAILED": "Failed to send to Feishu",
+        "FEISHU_PLAYING": "Feishu speaking...",
+        "FEISHU_AI_THINKING": "Sent to Feishu, AI thinking...",
+        "FEISHU_HOLD_OK_TALK": "Hold OK to talk"
     }
 }
