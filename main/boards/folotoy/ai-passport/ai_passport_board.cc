@@ -37,6 +37,7 @@ private:
     int64_t last_activity_time_ = 0;
     uint8_t current_brightness_ = 100;
     esp_timer_handle_t dim_timer_ = nullptr;
+    bool is_push_to_talk_active_ = false;
 
     void InitializeCodecI2c() {
         i2c_master_bus_config_t i2c_bus_cfg = {
@@ -101,17 +102,17 @@ private:
         adc_cfg.button_index = kAdcButtonUp;      // UP:   ~0 mV
         adc_cfg.min = BSP_ADC_BUTTON_UP_MIN;
         adc_cfg.max = BSP_ADC_BUTTON_UP_MAX;
-        adc_button_[kAdcButtonUp] = new AdcButton(adc_cfg);
+        adc_button_[kAdcButtonUp] = new AdcButton(adc_cfg, 1500);
 
         adc_cfg.button_index = kAdcButtonDown;    // DOWN: ~300 mV
         adc_cfg.min = BSP_ADC_BUTTON_DOWN_MIN;
         adc_cfg.max = BSP_ADC_BUTTON_DOWN_MAX;
-        adc_button_[kAdcButtonDown] = new AdcButton(adc_cfg);
+        adc_button_[kAdcButtonDown] = new AdcButton(adc_cfg, 1500);
 
         adc_cfg.button_index = kAdcButtonOk;      // OK:   ~595 mV
         adc_cfg.min = BSP_ADC_BUTTON_OK_MIN;
         adc_cfg.max = BSP_ADC_BUTTON_OK_MAX;
-        adc_button_[kAdcButtonOk] = new AdcButton(adc_cfg);
+        adc_button_[kAdcButtonOk] = new AdcButton(adc_cfg, 600);
 
         // 按钮事件与飞书硬件协同控制台深度绑定
         auto up = adc_button_[kAdcButtonUp];
@@ -172,22 +173,52 @@ private:
         auto ok = adc_button_[kAdcButtonOk];
         ok->OnClick([this]() {
             TouchActivity();
+            if (is_push_to_talk_active_) {
+                return;
+            }
             Application::GetInstance().Schedule([this]() {
-                ToggleChat();
+                auto& app = Application::GetInstance();
+                if (app.HasPendingFeishuGateway()) {
+                    app.ConnectSelectedFeishuGateway();
+                } else {
+                    ToggleChat();
+                }
             });
         });
         ok->OnLongPress([this]() {
             TouchActivity();
-            Application::GetInstance().Schedule([]() {
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateSpeaking) {
+                app.AbortSpeaking(kAbortReasonNone);
+                app.GetAudioService().ResetDecoder();
+            }
+            is_push_to_talk_active_ = true;
+            Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
-                if (app.GetDeviceState() == kDeviceStateSpeaking) {
-                    app.AbortSpeaking(kAbortReasonNone);
-                    app.GetAudioService().ResetDecoder();
-                }
                 if (app.GetDeviceState() == kDeviceStateIdle) {
                     app.StartListening();
+                    if (GetDisplay()) {
+                        GetDisplay()->SetStatus("松手发送语音...");
+                        GetDisplay()->SetEmotion("listening");
+                    }
                 }
             });
+        });
+        ok->OnPressUp([this]() {
+            TouchActivity();
+            if (is_push_to_talk_active_) {
+                is_push_to_talk_active_ = false;
+                Application::GetInstance().Schedule([this]() {
+                    auto& app = Application::GetInstance();
+                    if (app.GetDeviceState() == kDeviceStateListening) {
+                        app.StopListening();
+                        if (GetDisplay()) {
+                            GetDisplay()->SetStatus("飞书思考处理中...");
+                            GetDisplay()->SetEmotion("thinking");
+                        }
+                    }
+                });
+            }
         });
     }
 

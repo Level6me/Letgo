@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "system_info.h"
 #include "display.h"
+#include <wifi_manager.h>
 
 #include <esp_log.h>
 #include <cJSON.h>
@@ -45,13 +46,14 @@ FeishuProtocol::~FeishuProtocol() {
 }
 
 bool FeishuProtocol::Start() {
-    // 1. 读取 NVS 历史网关 IP
+    // 1. 读取 NVS 历史网关配置及配对状态
     Settings settings("feishu", false);
+    is_paired_ = settings.GetBool("paired", false);
     gateway_ip_ = settings.GetString("gw_ip");
     gateway_port_ = settings.GetInt("gw_port", DEFAULT_FEISHU_PORT);
 
-    if (!gateway_ip_.empty()) {
-        ESP_LOGI(TAG, "Attempting fast direct connect to saved gateway: %s:%d", gateway_ip_.c_str(), gateway_port_);
+    if (is_paired_ && !gateway_ip_.empty()) {
+        ESP_LOGI(TAG, "Attempting direct connect to paired gateway: %s:%d", gateway_ip_.c_str(), gateway_port_);
         ConnectToGateway(gateway_ip_, gateway_port_);
     }
 
@@ -67,7 +69,7 @@ void FeishuProtocol::StartDiscovery() {
 
     xTaskCreate([](void* arg) {
         auto self = static_cast<FeishuProtocol*>(arg);
-        char rx_buf[256];
+        char rx_buf[512];
         const char* probe = "DISCOVER_FEISHU_PASSPORT";
 
         while (true) {
@@ -92,23 +94,45 @@ void FeishuProtocol::StartDiscovery() {
                     int len = recvfrom(sock, rx_buf, sizeof(rx_buf) - 1, 0, (struct sockaddr*)&src_addr, &addr_len);
                     if (len > 0) {
                         rx_buf[len] = '\0';
-                        if (strstr(rx_buf, "feishu_passport")) {
-                            struct sockaddr_in* sin = (struct sockaddr_in*)&src_addr;
-                            char ip_str[32];
-                            inet_ntop(AF_INET, &sin->sin_addr, ip_str, sizeof(ip_str));
-                            int port = DEFAULT_FEISHU_PORT;
+                        cJSON* root = cJSON_Parse(rx_buf);
+                        if (root) {
+                            auto service = cJSON_GetObjectItem(root, "service");
+                            if (cJSON_IsString(service) && strcmp(service->valuestring, "feishu_passport") == 0) {
+                                struct sockaddr_in* sin = (struct sockaddr_in*)&src_addr;
+                                char ip_str[32];
+                                inet_ntop(AF_INET, &sin->sin_addr, ip_str, sizeof(ip_str));
 
-                            ESP_LOGI(TAG, "Discovered Feishu gateway at: %s:%d", ip_str, port);
-                            close(sock);
+                                auto port_item = cJSON_GetObjectItem(root, "ws_port");
+                                int port = cJSON_IsNumber(port_item) ? port_item->valueint : DEFAULT_FEISHU_PORT;
 
-                            // 保存到 NVS
-                            Settings settings("feishu", true);
-                            settings.SetString("gw_ip", ip_str);
-                            settings.SetInt("gw_port", port);
+                                auto name_item = cJSON_GetObjectItem(root, "name");
+                                std::string gw_name = cJSON_IsString(name_item) ? name_item->valuestring : "飞书控制台";
 
-                            self->ConnectToGateway(ip_str, port);
-                            vTaskDelay(pdMS_TO_TICKS(5000));
-                            continue;
+                                ESP_LOGI(TAG, "Discovered Feishu gateway: %s (%s:%d)", gw_name.c_str(), ip_str, port);
+
+                                // 若已配对且当前未连接，直接连接已配对网关
+                                if (self->is_paired_ && self->gateway_ip_ == ip_str) {
+                                    close(sock);
+                                    cJSON_Delete(root);
+                                    self->ConnectToGateway(ip_str, port);
+                                    vTaskDelay(pdMS_TO_TICKS(5000));
+                                    continue;
+                                }
+
+                                // 否则记录为候选网关，并在屏幕提示用户短按确认配对
+                                self->pending_gw_ip_ = ip_str;
+                                self->pending_gw_port_ = port;
+                                self->pending_gw_name_ = gw_name;
+
+                                auto display = Board::GetInstance().GetDisplay();
+                                if (display && !self->connected_) {
+                                    char tip[128];
+                                    snprintf(tip, sizeof(tip), "🔍 发现控制台:\n%s\n短按OK键配对", gw_name.c_str());
+                                    display->ShowNotification(tip, 6000);
+                                    display->SetStatus(gw_name.c_str());
+                                }
+                            }
+                            cJSON_Delete(root);
                         }
                     }
                     close(sock);
@@ -117,6 +141,34 @@ void FeishuProtocol::StartDiscovery() {
             vTaskDelay(pdMS_TO_TICKS(4000));
         }
     }, "feishu_discovery", 4096, this, 5, &discovery_task_handle_);
+}
+
+void FeishuProtocol::ConnectSelectedGateway() {
+    if (pending_gw_ip_.empty()) return;
+    ESP_LOGI(TAG, "Connecting to selected gateway for pairing: %s:%d", pending_gw_ip_.c_str(), pending_gw_port_);
+
+    auto display = Board::GetInstance().GetDisplay();
+    if (display) {
+        display->ShowNotification("⏳ 正在发起配对申请\n请在飞书确认...", 8000);
+        display->SetStatus("请求配对中...");
+    }
+
+    ConnectToGateway(pending_gw_ip_, pending_gw_port_);
+}
+
+void FeishuProtocol::SendPairRequest() {
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "type", "pair_request");
+    cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
+    cJSON_AddStringToObject(root, "ip", WifiManager::GetInstance().GetIpAddress().c_str());
+    cJSON_AddStringToObject(root, "device_name", "FoloToy AI Passport");
+
+    char* json_str = cJSON_PrintUnformatted(root);
+    SendText(json_str);
+    cJSON_free(json_str);
+    cJSON_Delete(root);
+    ESP_LOGI(TAG, "Pair request sent: MAC=%s, IP=%s",
+             SystemInfo::GetMacAddress().c_str(), WifiManager::GetInstance().GetIpAddress().c_str());
 }
 
 void FeishuProtocol::TriggerDiscovery() {
@@ -187,7 +239,11 @@ void FeishuProtocol::ConnectToGateway(const std::string& ip, int port) {
     if (auto connected = websocket_->Connect(url.c_str()); connected) {
         ESP_LOGI(TAG, "Connected to Feishu Gateway successfully!");
         connected_ = true;
-        SendHandshake();
+        if (!is_paired_) {
+            SendPairRequest();
+        } else {
+            SendHandshake();
+        }
 
         // 启动 15 秒保活 Ping
         if (ping_timer_) {
@@ -206,6 +262,7 @@ void FeishuProtocol::ConnectToGateway(const std::string& ip, int port) {
 void FeishuProtocol::SendHandshake() {
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "type", "handshake");
+    cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
     cJSON_AddStringToObject(root, "device_id", SystemInfo::GetMacAddress().c_str());
     cJSON_AddStringToObject(root, "version", "2.0.0");
     cJSON_AddStringToObject(root, "board", "ai-passport");
@@ -259,12 +316,24 @@ bool FeishuProtocol::IsAudioChannelOpened() const {
 void FeishuProtocol::SendStartListening(ListeningMode mode) {
     (void)mode;
     SendBargeIn();
-    SendText("{\"type\":\"voice_start\"}");
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "type", "voice_start");
+    cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
+    char* json_str = cJSON_PrintUnformatted(root);
+    SendText(json_str);
+    cJSON_free(json_str);
+    cJSON_Delete(root);
     is_audio_channel_opened_ = true;
 }
 
 void FeishuProtocol::SendStopListening() {
-    SendText("{\"type\":\"voice_end\"}");
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "type", "voice_end");
+    cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
+    char* json_str = cJSON_PrintUnformatted(root);
+    SendText(json_str);
+    cJSON_free(json_str);
+    cJSON_Delete(root);
     is_audio_channel_opened_ = false;
 }
 
@@ -307,7 +376,65 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
     std::string type_str = type->valuestring;
     auto display = Board::GetInstance().GetDisplay();
 
-    if (type_str == "dashboard_sync") {
+    if (type_str == "pair_ack") {
+        auto status = cJSON_GetObjectItem(root, "status");
+        if (cJSON_IsString(status)) {
+            std::string st = status->valuestring;
+            if (st == "approved") {
+                is_paired_ = true;
+                pending_gw_ip_.clear();
+                pending_gw_name_.clear();
+
+                Settings settings("feishu", true);
+                settings.SetString("gw_ip", gateway_ip_);
+                settings.SetInt("gw_port", gateway_port_);
+                settings.SetBool("paired", true);
+                auto token = cJSON_GetObjectItem(root, "token");
+                if (cJSON_IsString(token)) {
+                    settings.SetString("gw_token", token->valuestring);
+                }
+
+                Application::GetInstance().Schedule([display]() {
+                    if (display) {
+                        display->SetStatus("飞书控制台就绪");
+                        display->ShowNotification("🎉 配对成功！\n长按OK键开始对讲", 5000);
+                        display->SetEmotion("neutral");
+                    }
+                });
+            } else if (st == "pending") {
+                Application::GetInstance().Schedule([display]() {
+                    if (display) {
+                        display->SetStatus("等待飞书审批...");
+                        display->ShowNotification("⏳ 等待飞书管理员审批...", 5000);
+                    }
+                });
+            } else if (st == "rejected") {
+                is_paired_ = false;
+                Application::GetInstance().Schedule([display]() {
+                    if (display) {
+                        display->SetStatus("配对已被拒绝");
+                        display->ShowNotification("❌ 飞书管理员已拒绝配对", 5000);
+                        display->SetEmotion("sad");
+                    }
+                });
+            }
+        }
+    } else if (type_str == "voice_reply_start") {
+        Application::GetInstance().Schedule([display]() {
+            Application::GetInstance().SetDeviceState(kDeviceStateSpeaking);
+            if (display) {
+                display->SetStatus("飞书播报中...");
+                display->SetEmotion("speaking");
+            }
+        });
+    } else if (type_str == "voice_reply_end") {
+        Application::GetInstance().Schedule([display]() {
+            if (display) {
+                display->SetEmotion("neutral");
+                display->SetStatus("飞书控制台就绪");
+            }
+        });
+    } else if (type_str == "dashboard_sync") {
         auto project = cJSON_GetObjectItem(root, "project");
         auto status = cJSON_GetObjectItem(root, "status");
         if (display && cJSON_IsString(project)) {

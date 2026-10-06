@@ -1401,3 +1401,27 @@ void Application::TriggerFeishuDiscovery() {
         feishu->TriggerDiscovery();
     }
 }
+
+bool Application::HasPendingFeishuGateway() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        return feishu->HasPendingGateway();
+    }
+    return false;
+}
+
+std::string Application::GetPendingFeishuGatewayName() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        return feishu->GetPendingGatewayName();
+    }
+    return "";
+}
+
+void Application::ConnectSelectedFeishuGateway() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        feishu->ConnectSelectedGateway();
+    }
+}
+

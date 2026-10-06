@@ -31,13 +31,21 @@ public:
     bool IsConnected() const { return connected_; }
     const std::string& GetGatewayIp() const { return gateway_ip_; }
     void TriggerDiscovery();
+    void SendPairRequest();
+    void ConnectSelectedGateway();
+    bool HasPendingGateway() const { return !pending_gw_ip_.empty() && !connected_; }
+    const std::string& GetPendingGatewayName() const { return pending_gw_name_; }
 
 private:
     std::unique_ptr<WebSocket> websocket_;
     std::string gateway_ip_;
     int gateway_port_ = 8765;
+    std::string pending_gw_ip_;
+    int pending_gw_port_ = 8765;
+    std::string pending_gw_name_;
     bool is_audio_channel_opened_ = false;
     bool connected_ = false;
+    bool is_paired_ = false;
 
     TaskHandle_t discovery_task_handle_ = nullptr;
     esp_timer_handle_t ping_timer_ = nullptr;

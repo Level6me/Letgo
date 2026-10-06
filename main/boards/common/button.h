@@ -36,7 +36,7 @@ protected:
 #if CONFIG_SOC_ADC_SUPPORTED
 class AdcButton : public Button {
 public:
-    AdcButton(const button_adc_config_t& adc_config);
+    AdcButton(const button_adc_config_t& adc_config, uint16_t long_press_time = 800);
 };
 #endif
 

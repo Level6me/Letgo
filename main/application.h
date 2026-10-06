@@ -122,6 +122,9 @@ public:
     bool IsFeishuConnected();
     std::string GetFeishuGatewayIp();
     void TriggerFeishuDiscovery();
+    bool HasPendingFeishuGateway();
+    std::string GetPendingFeishuGatewayName();
+    void ConnectSelectedFeishuGateway();
     
     /**
      * Reset protocol resources (thread-safe)
