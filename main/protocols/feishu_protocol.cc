@@ -419,6 +419,32 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 });
             }
         }
+    } else if (type_str == "feishu_voice_sent") {
+        auto status_item = cJSON_GetObjectItem(root, "status");
+        std::string status = cJSON_IsString(status_item) ? status_item->valuestring : "success";
+        auto text_item = cJSON_GetObjectItem(root, "text");
+        std::string text = cJSON_IsString(text_item) ? text_item->valuestring : "";
+
+        Application::GetInstance().Schedule([display, status, text]() {
+            if (!display) return;
+            if (status == "success" || status == "ok") {
+                char tip[128];
+                if (!text.empty() && text != "(未检测到有效语音)") {
+                    snprintf(tip, sizeof(tip), "✅ 已发送至飞书!\n「%s」", text.c_str());
+                    display->SetChatMessage("user", text.c_str());
+                } else {
+                    snprintf(tip, sizeof(tip), "✅ 语音已发送至飞书!\n等待AI回复中...");
+                }
+                display->ShowNotification(tip, 4000);
+                display->SetStatus("已发送至飞书，等待回复...");
+                display->SetEmotion("neutral");
+            } else {
+                display->ShowNotification("❌ 发送至飞书失败", 3000);
+                display->SetStatus("发送飞书失败");
+                display->SetEmotion("sad");
+                Application::GetInstance().SetFeishuAwaitingReply(false);
+            }
+        });
     } else if (type_str == "voice_reply_start") {
         Application::GetInstance().Schedule([display]() {
             Application::GetInstance().SetDeviceState(kDeviceStateSpeaking);
@@ -429,6 +455,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         });
     } else if (type_str == "voice_reply_end") {
         Application::GetInstance().Schedule([display]() {
+            Application::GetInstance().SetFeishuAwaitingReply(false);
             if (display) {
                 display->SetEmotion("neutral");
                 display->SetStatus("飞书控制台就绪");
@@ -455,9 +482,11 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         }
     } else if (type_str == "ai_state") {
         auto state = cJSON_GetObjectItem(root, "state");
+        auto detail = cJSON_GetObjectItem(root, "detail");
+        std::string detail_str = cJSON_IsString(detail) ? detail->valuestring : "";
         if (cJSON_IsString(state)) {
             std::string st = state->valuestring;
-            Application::GetInstance().Schedule([display, st]() {
+            Application::GetInstance().Schedule([display, st, detail_str]() {
                 auto& app = Application::GetInstance();
                 if (st == "listening") {
                     app.SetDeviceState(kDeviceStateListening);
@@ -467,18 +496,26 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                     }
                 } else if (st == "thinking") {
                     if (display) {
-                        display->SetStatus("AI思考中...");
+                        if (detail_str.find("Transcribing") != std::string::npos) {
+                            display->SetStatus("飞书识别中...");
+                        } else if (detail_str.find("Analyzing") != std::string::npos) {
+                            display->SetStatus("已发送飞书，AI思考中...");
+                        } else {
+                            display->SetStatus("飞书处理中...");
+                        }
                         display->SetEmotion("thinking");
                     }
                 } else if (st == "speaking") {
                     app.SetDeviceState(kDeviceStateSpeaking);
                     if (display) {
-                        display->SetStatus("AI播报中...");
+                        display->SetStatus("飞书播报中...");
                         display->SetEmotion("speaking");
                     }
                 } else {
+                    app.SetFeishuAwaitingReply(false);
                     app.SetDeviceState(kDeviceStateIdle);
                     if (display) {
+                        display->SetStatus("飞书控制台就绪");
                         display->SetEmotion("neutral");
                     }
                 }
@@ -491,16 +528,17 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
             Application::GetInstance().Schedule([display, msg]() {
                 display->SetChatMessage("assistant", msg.c_str());
                 display->SetEmotion("speaking");
-                display->SetStatus("AI播报中...");
+                display->SetStatus("飞书播报中...");
                 Application::GetInstance().SetDeviceState(kDeviceStateSpeaking);
             });
         }
     } else if (type_str == "ai_speech_end") {
         Application::GetInstance().Schedule([display]() {
+            Application::GetInstance().SetFeishuAwaitingReply(false);
             Application::GetInstance().SetDeviceState(kDeviceStateIdle);
             if (display) {
                 display->SetEmotion("neutral");
-                display->SetChatMessage("system", "");
+                display->SetStatus("飞书控制台就绪");
             }
         });
     } else if (type_str == "alert_popup") {

@@ -1010,10 +1010,14 @@ void Application::HandleStateChangedEvent() {
             // queues STATE_CHANGED after Alert(), and the idle handler would
             // otherwise wipe the status, emotion, and chat message.
             if (last_error_message_.empty()) {
-                display->SetStatus(Lang::Strings::STANDBY);
-                display->ClearChatMessages();  // Clear messages first
-                display->SetEmotion(
-                    "neutral");  // Then set emotion (wechat mode checks child count)
+                if (IsFeishuConnected() && feishu_awaiting_reply_) {
+                    // Retain Feishu voice sending / awaiting status on display
+                } else {
+                    display->SetStatus(IsFeishuConnected() ? "飞书控制台就绪" : Lang::Strings::STANDBY);
+                    display->ClearChatMessages();  // Clear messages first
+                    display->SetEmotion(
+                        "neutral");  // Then set emotion (wechat mode checks child count)
+                }
             }
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
@@ -1024,8 +1028,10 @@ void Application::HandleStateChangedEvent() {
             display->SetChatMessage("system", "");
             break;
         case kDeviceStateListening:
-            display->SetStatus(Lang::Strings::LISTENING);
-            display->SetEmotion("neutral");
+            if (!IsFeishuConnected()) {
+                display->SetStatus(Lang::Strings::LISTENING);
+                display->SetEmotion("neutral");
+            }
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
@@ -1423,5 +1429,13 @@ void Application::ConnectSelectedFeishuGateway() {
         auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
         feishu->ConnectSelectedGateway();
     }
+}
+
+void Application::SetFeishuAwaitingReply(bool awaiting) {
+    feishu_awaiting_reply_ = awaiting;
+}
+
+bool Application::IsFeishuAwaitingReply() const {
+    return feishu_awaiting_reply_;
 }
 

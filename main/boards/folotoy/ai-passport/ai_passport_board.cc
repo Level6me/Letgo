@@ -38,6 +38,89 @@ private:
     uint8_t current_brightness_ = 100;
     esp_timer_handle_t dim_timer_ = nullptr;
     bool is_push_to_talk_active_ = false;
+    int64_t record_start_time_ = 0;
+    esp_timer_handle_t record_timer_ = nullptr;
+
+    void StartRecordTimer() {
+        if (!record_timer_) {
+            esp_timer_create_args_t timer_args = {
+                .callback = [](void* arg) {
+                    auto self = static_cast<AiPassportBoard*>(arg);
+                    if (!self->is_push_to_talk_active_) {
+                        return;
+                    }
+                    int elapsed_sec = (int)((esp_timer_get_time() - self->record_start_time_) / 1000000);
+                    Application::GetInstance().Schedule([self, elapsed_sec]() {
+                        if (!self->is_push_to_talk_active_) {
+                            return;
+                        }
+                        if (elapsed_sec >= 60) {
+                            self->StopPushToTalk(elapsed_sec);
+                            return;
+                        }
+                        auto display = self->GetDisplay();
+                        if (display) {
+                            char status_buf[64];
+                            snprintf(status_buf, sizeof(status_buf), "🎙️ 录音中 %02d:%02d [松手发送]", elapsed_sec / 60, elapsed_sec % 60);
+                            display->SetStatus(status_buf);
+                            display->SetEmotion("listening");
+
+                            char tip_buf[64];
+                            snprintf(tip_buf, sizeof(tip_buf), "🎙️ 正在录音...\n时长: %d 秒\n松开按键发送", elapsed_sec);
+                            display->ShowNotification(tip_buf, 1500);
+                        }
+                    });
+                },
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "record_timer"
+            };
+            esp_timer_create(&timer_args, &record_timer_);
+        }
+        esp_timer_start_periodic(record_timer_, 1000000);
+    }
+
+    void StopRecordTimer() {
+        if (record_timer_) {
+            esp_timer_stop(record_timer_);
+        }
+    }
+
+    void StopPushToTalk(int duration_sec) {
+        if (!is_push_to_talk_active_) {
+            return;
+        }
+        is_push_to_talk_active_ = false;
+        StopRecordTimer();
+
+        auto& app = Application::GetInstance();
+        auto display = GetDisplay();
+
+        if (duration_sec < 1) {
+            if (app.GetDeviceState() == kDeviceStateListening) {
+                app.StopListening();
+            }
+            if (display) {
+                display->ShowNotification("⚠️ 录音时间太短(<1秒)\n已取消发送", 2000);
+                display->SetStatus(app.IsFeishuConnected() ? "飞书控制台就绪" : Lang::Strings::STANDBY);
+                display->SetEmotion("neutral");
+            }
+            return;
+        }
+
+        app.SetFeishuAwaitingReply(true);
+        if (app.GetDeviceState() == kDeviceStateListening) {
+            app.StopListening();
+        }
+
+        if (display) {
+            char tip[80];
+            snprintf(tip, sizeof(tip), "📤 录音完成 (%d秒)\n正在发送语音至飞书...", duration_sec);
+            display->ShowNotification(tip, 3500);
+            display->SetStatus("正在发送语音至飞书...");
+            display->SetEmotion("thinking");
+        }
+    }
 
     void InitializeCodecI2c() {
         i2c_master_bus_config_t i2c_bus_cfg = {
@@ -193,30 +276,25 @@ private:
                 app.GetAudioService().ResetDecoder();
             }
             is_push_to_talk_active_ = true;
+            record_start_time_ = esp_timer_get_time();
+
             Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
-                if (app.GetDeviceState() == kDeviceStateIdle) {
-                    app.StartListening();
-                    if (GetDisplay()) {
-                        GetDisplay()->SetStatus("松手发送语音...");
-                        GetDisplay()->SetEmotion("listening");
-                    }
+                app.StartListening();
+                if (GetDisplay()) {
+                    GetDisplay()->SetStatus("🎙️ 录音中 00:00 [松手发送]");
+                    GetDisplay()->SetEmotion("listening");
+                    GetDisplay()->ShowNotification("🎙️ 正在录音...\n时长: 0 秒\n松开按键发送", 1500);
                 }
+                StartRecordTimer();
             });
         });
         ok->OnPressUp([this]() {
             TouchActivity();
             if (is_push_to_talk_active_) {
-                is_push_to_talk_active_ = false;
-                Application::GetInstance().Schedule([this]() {
-                    auto& app = Application::GetInstance();
-                    if (app.GetDeviceState() == kDeviceStateListening) {
-                        app.StopListening();
-                        if (GetDisplay()) {
-                            GetDisplay()->SetStatus("飞书思考处理中...");
-                            GetDisplay()->SetEmotion("thinking");
-                        }
-                    }
+                int duration_sec = (int)((esp_timer_get_time() - record_start_time_) / 1000000);
+                Application::GetInstance().Schedule([this, duration_sec]() {
+                    StopPushToTalk(duration_sec);
                 });
             }
         });
