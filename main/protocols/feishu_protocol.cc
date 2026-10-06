@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "system_info.h"
 #include "display.h"
+#include <assets/lang_config.h>
 #include <wifi_manager.h>
 
 #include <esp_log.h>
