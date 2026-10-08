@@ -137,7 +137,10 @@ private:
                     // 状态栏每 5 帧(~250ms)刷新一次跳跃式波形字符，保证极致顺滑
                     if (self->wave_frame_ % 5 == 0) {
                         int elapsed_sec = (int)((esp_timer_get_time() - self->record_start_time_) / 1000000);
-                        Application::GetInstance().Schedule([self, elapsed_sec]() {
+                        // 获取当前采样周期的真实 RMS 声压能量
+                        uint16_t rms = Application::GetInstance().GetAudioService().GetInputEnergyRms();
+
+                        Application::GetInstance().Schedule([self, elapsed_sec, rms]() {
                             if (!self->is_push_to_talk_active_) {
                                 return;
                             }
@@ -147,21 +150,34 @@ private:
                             }
                             auto display = self->GetDisplay();
                             if (display) {
-                                static const char* kWaveBars[] = {
-                                    " ▂▃▅▆▇▆▅▃▂ ",
-                                    "▂▃▅▆▇█▇▆▅▃ ",
-                                    "▃▅▆▇█▇▆▅▃▂ ",
-                                    "▅▆▇█▇▆▅▃▂  ",
-                                    "▆▇█▇▆▅▃▂ ▂▃",
-                                    "▇█▇▆▅▃▂ ▂▃▅",
-                                    "█▇▆▅▃▂ ▂▃▅▆",
-                                    "▇▆▅▃▂ ▂▃▅▆▇",
-                                    "▆▅▃▂ ▂▃▅▆▇█",
-                                    "▅▃▂ ▂▃▅▆▇█▇",
-                                    "▃▂ ▂▃▅▆▇█▇▆",
-                                    "▂ ▂▃▅▆▇█▇▆▅",
+                                // 根据 RMS 声压真实动态计算频谱波形
+                                // 基础环境噪声阈值通常在 200~500，正常说话在 1500~6000，大声在 8000+
+                                int energy_level = 0;
+                                if (rms > 6000) energy_level = 6;
+                                else if (rms > 4000) energy_level = 5;
+                                else if (rms > 2500) energy_level = 4;
+                                else if (rms > 1200) energy_level = 3;
+                                else if (rms > 500)  energy_level = 2;
+                                else if (rms > 150)  energy_level = 1;
+
+                                // 结合正弦流动帧与声压强度：音量大时波柱剧烈跳动，静音时保持流动呼吸
+                                static const char* kFluidWaves[4][6] = {
+                                    // 弱音流动 (level 0-2)
+                                    {" ▂▃ ▂ ", "▂▃ ▂ ", "▃ ▂ ▂", " ▂ ▂▃", "▂ ▂▃ ", " ▂▃ ▂ "},
+                                    // 中音流动 (level 3-4)
+                                    {" ▂▃▅▃▂ ", "▂▃▅▆▅▃", "▃▅▆▇▆▅", "▅▆▇▆▅▃", "▆▅▃▂ ▂", "▃▂ ▂▃▅"},
+                                    // 强音澎湃 (level 5-6)
+                                    {"▃▅▆▇██▇▆", "▅▆▇██▇▆▅", "▆▇██▇▆▅▃", "██▇▆▅▃▅▆", "▇▆▅▃▅▆▇█", "▆▅▃▅▆▇██"},
+                                    // 爆表重音 (level > 6)
+                                    {"██▇██▇██", "▇██▇██▇█", "██▇██▇██", "▇██▇██▇█", "██▇██▇██", "▇██▇██▇█"}
                                 };
-                                const char* wave = kWaveBars[self->wave_frame_ % 12];
+
+                                int wave_band = 0;
+                                if (energy_level >= 5) wave_band = 2;
+                                else if (energy_level >= 3) wave_band = 1;
+                                else if (energy_level >= 1) wave_band = 0;
+
+                                const char* wave = kFluidWaves[wave_band][self->wave_frame_ % 6];
 
                                 char status_buf[64];
                                 snprintf(status_buf, sizeof(status_buf), "🎙️ %02d:%02d [%s]",

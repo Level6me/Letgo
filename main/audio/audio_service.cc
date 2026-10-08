@@ -1,6 +1,7 @@
 #include "audio_service.h"
 #include <esp_log.h>
 #include <cstring>
+#include <cmath>
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)                                        \
     (esp_ae_rate_cvt_cfg_t) {                                                                \
@@ -227,6 +228,18 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
     /* Update the last input time */
     last_input_time_ = std::chrono::steady_clock::now();
     debug_statistics_.input_count++;
+
+    // 计算即时 RMS 能量值（供 UI 频谱动效与录音实时交互显示）
+    if (!data.empty()) {
+        uint64_t sum_squares = 0;
+        size_t n = data.size();
+        for (size_t i = 0; i < n; i++) {
+            int32_t sample = data[i];
+            sum_squares += (uint64_t)(sample * sample);
+        }
+        uint16_t rms = static_cast<uint16_t>(sqrt(sum_squares / n));
+        input_energy_rms_.store(rms, std::memory_order_relaxed);
+    }
 
 #if CONFIG_USE_AUDIO_DEBUGGER
     // 音频调试：发送原始音频数据
