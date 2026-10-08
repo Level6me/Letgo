@@ -1,4 +1,5 @@
 #include "audio_service.h"
+#include "audio_spectrum.h"
 #include <esp_log.h>
 #include <cstring>
 #include <cmath>
@@ -229,7 +230,7 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
     last_input_time_ = std::chrono::steady_clock::now();
     debug_statistics_.input_count++;
 
-    // 计算即时 RMS 能量值（供 UI 频谱动效与录音实时交互显示）
+    // 计算即时 RMS 能量值与 FFT 15频段真实频谱
     if (!data.empty()) {
         uint64_t sum_squares = 0;
         size_t n = data.size();
@@ -239,6 +240,12 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         }
         uint16_t rms = static_cast<uint16_t>(sqrt(sum_squares / n));
         input_energy_rms_.store(rms, std::memory_order_relaxed);
+
+        uint8_t bands[15];
+        AudioSpectrum::Analyze(data.data(), data.size(), bands, decay_bands_);
+        for (int i = 0; i < 15; i++) {
+            spectrum_bands_[i].store(bands[i], std::memory_order_relaxed);
+        }
     }
 
 #if CONFIG_USE_AUDIO_DEBUGGER
@@ -361,7 +368,7 @@ void AudioService::AudioOutputTask() {
             callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
         }
 
-        // 计算即时输出 RMS 能量值（供 UI 频谱波浪动效实时显示）
+        // 计算即时输出 RMS 能量值与 FFT 15频段真实频谱
         if (!task.pcm.empty()) {
             uint64_t sum_squares = 0;
             size_t n = task.pcm.size();
@@ -371,8 +378,18 @@ void AudioService::AudioOutputTask() {
             }
             uint16_t rms = static_cast<uint16_t>(sqrt(sum_squares / n));
             output_energy_rms_.store(rms, std::memory_order_relaxed);
+
+            uint8_t bands[15];
+            AudioSpectrum::Analyze(task.pcm.data(), task.pcm.size(), bands, decay_bands_);
+            for (int i = 0; i < 15; i++) {
+                spectrum_bands_[i].store(bands[i], std::memory_order_relaxed);
+            }
         } else {
             output_energy_rms_.store(0, std::memory_order_relaxed);
+            for (int i = 0; i < 15; i++) {
+                spectrum_bands_[i].store(2, std::memory_order_relaxed);
+                decay_bands_[i] = 2;
+            }
         }
 
         codec_->OutputData(task.pcm);
@@ -854,8 +871,18 @@ bool AudioService::IsPlaybackIdle() {
     return IsPlaybackDrainedLocked();
 }
 
+void AudioService::GetSpectrumBands(uint8_t bands[15]) const {
+    for (int i = 0; i < 15; i++) {
+        bands[i] = spectrum_bands_[i].load(std::memory_order_relaxed);
+    }
+}
+
 void AudioService::ResetDecoder() {
     output_energy_rms_.store(0, std::memory_order_relaxed);
+    for (int i = 0; i < 15; i++) {
+        spectrum_bands_[i].store(2, std::memory_order_relaxed);
+        decay_bands_[i] = 2;
+    }
     bool notify_drained = false;
     {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
@@ -887,6 +914,10 @@ bool AudioService::MarkPlaybackDrainedLocked() {
         return false;
     }
     output_energy_rms_.store(0, std::memory_order_relaxed);
+    for (int i = 0; i < 15; i++) {
+        spectrum_bands_[i].store(2, std::memory_order_relaxed);
+        decay_bands_[i] = 2;
+    }
     playback_drained_notified_ = true;
     return true;
 }

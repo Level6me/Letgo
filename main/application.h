@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "protocol.h"
+#include "protocols/feishu_protocol.h"
 #include "ota.h"
 #include "audio_service.h"
 #include "device_state.h"
@@ -125,6 +126,10 @@ public:
     bool HasPendingFeishuGateway();
     std::string GetPendingFeishuGatewayName();
     void ConnectSelectedFeishuGateway();
+    std::vector<FeishuGateway> GetDiscoveredFeishuGateways();
+    void ConnectFeishuGatewayByIndex(size_t index);
+    void ConnectFeishuGateway(const std::string& ip, int port);
+    void SetOnFeishuGatewaysChanged(std::function<void(const std::vector<FeishuGateway>&)> cb);
     void SetFeishuAwaitingReply(bool awaiting);
     bool IsFeishuAwaitingReply() const;
     

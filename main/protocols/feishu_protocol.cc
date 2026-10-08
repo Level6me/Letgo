@@ -120,17 +120,34 @@ void FeishuProtocol::StartDiscovery() {
                                     continue;
                                 }
 
-                                // 否则记录为候选网关，并在屏幕提示用户短按确认配对
-                                self->pending_gw_ip_ = ip_str;
-                                self->pending_gw_port_ = port;
-                                self->pending_gw_name_ = gw_name;
+                                // 记录并更新到候选网关列表中
+                                bool is_new = false;
+                                {
+                                    std::lock_guard<std::mutex> lock(self->gateways_mutex_);
+                                    bool exists = false;
+                                    for (auto& gw : self->discovered_gateways_) {
+                                        if (gw.ip == ip_str && gw.port == port) {
+                                            gw.name = gw_name;
+                                            exists = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!exists) {
+                                        self->discovered_gateways_.push_back({gw_name, ip_str, port});
+                                        is_new = true;
+                                    }
+                                    self->pending_gw_ip_ = ip_str;
+                                    self->pending_gw_port_ = port;
+                                    self->pending_gw_name_ = gw_name;
+                                }
 
-                                auto display = Board::GetInstance().GetDisplay();
-                                if (display && !self->connected_) {
-                                    char tip[128];
-                                    snprintf(tip, sizeof(tip), "🔍 发现控制台:\n%s\n短按OK键配对", gw_name.c_str());
-                                    display->ShowNotification(tip, 6000);
-                                    display->SetStatus(gw_name.c_str());
+                                if (is_new && self->on_gateways_changed_) {
+                                    auto list = self->GetDiscoveredGateways();
+                                    Application::GetInstance().Schedule([self, list]() {
+                                        if (self->on_gateways_changed_) {
+                                            self->on_gateways_changed_(list);
+                                        }
+                                    });
                                 }
                             }
                             cJSON_Delete(root);
@@ -142,6 +159,36 @@ void FeishuProtocol::StartDiscovery() {
             vTaskDelay(pdMS_TO_TICKS(4000));
         }
     }, "feishu_discovery", 4096, this, 5, &discovery_task_handle_);
+}
+
+std::vector<FeishuGateway> FeishuProtocol::GetDiscoveredGateways() const {
+    std::lock_guard<std::mutex> lock(gateways_mutex_);
+    return discovered_gateways_;
+}
+
+void FeishuProtocol::ConnectToGatewayByIndex(size_t index) {
+    std::string ip;
+    int port = DEFAULT_FEISHU_PORT;
+    std::string name;
+    {
+        std::lock_guard<std::mutex> lock(gateways_mutex_);
+        if (index < discovered_gateways_.size()) {
+            ip = discovered_gateways_[index].ip;
+            port = discovered_gateways_[index].port;
+            name = discovered_gateways_[index].name;
+            pending_gw_ip_ = ip;
+            pending_gw_port_ = port;
+            pending_gw_name_ = name;
+        }
+    }
+    if (!ip.empty()) {
+        ESP_LOGI(TAG, "Connecting to selected gateway [%d] %s (%s:%d)", (int)index, name.c_str(), ip.c_str(), port);
+        ConnectToGateway(ip, port);
+    }
+}
+
+void FeishuProtocol::SetOnGatewaysChanged(std::function<void(const std::vector<FeishuGateway>&)> cb) {
+    on_gateways_changed_ = std::move(cb);
 }
 
 void FeishuProtocol::ConnectSelectedGateway() {
@@ -175,6 +222,14 @@ void FeishuProtocol::SendPairRequest() {
 void FeishuProtocol::TriggerDiscovery() {
     if (connected_) {
         return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(gateways_mutex_);
+        discovered_gateways_.clear();
+        pending_gw_ip_.clear();
+    }
+    if (on_gateways_changed_) {
+        on_gateways_changed_({});
     }
     ESP_LOGI(TAG, "Triggering active UDP gateway discovery probe...");
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);

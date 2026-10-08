@@ -61,6 +61,17 @@ private:
     bool was_active_wave_ = false;
     std::atomic<bool> is_recording_ptt_{false};
 
+    // 飞书网关配对选择弹窗
+    lv_obj_t* gateway_modal_ = nullptr;
+    lv_obj_t* gateway_title_label_ = nullptr;
+    lv_obj_t* gateway_sub_label_ = nullptr;
+    lv_obj_t* gateway_list_box_ = nullptr;
+    static constexpr size_t kMaxGatewayItems = 5;
+    lv_obj_t* gateway_item_btns_[kMaxGatewayItems] = {nullptr};
+    lv_obj_t* gateway_item_labels_[kMaxGatewayItems] = {nullptr};
+    std::vector<FeishuGateway> cached_gateways_;
+    int selected_gateway_index_ = 0;
+
     void RenderIdleLine() {
         if (wave_container_) {
             lv_obj_add_flag(wave_container_, LV_OBJ_FLAG_HIDDEN);
@@ -70,7 +81,7 @@ private:
         }
     }
 
-    void RenderWaveBars(uint16_t energy_rms, uint32_t frame) {
+    void RenderFftSpectrum(const uint8_t bands[kWaveBarsCount]) {
         if (center_line_obj_) {
             lv_obj_add_flag(center_line_obj_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -78,27 +89,9 @@ private:
             lv_obj_remove_flag(wave_container_, LV_OBJ_FLAG_HIDDEN);
         }
 
-        // 计算声音能量活跃度因子 (0.0 ~ 1.0)
-        float factor = 0.0f;
-        if (energy_rms > 100) {
-            factor = (float)(energy_rms - 100) / 2500.0f;
-            if (factor > 1.0f) factor = 1.0f;
-        }
-        // 录音或播放中若暂无明显声响，保持基础 15% 呼吸微波，提示处于工作收听/播放状态
-        float eff_factor = (factor < 0.15f) ? 0.15f : factor;
-        float phase = (float)frame * 0.35f;
-
         for (int i = 0; i < kWaveBarsCount; i++) {
-            float d = fabsf((float)i - 7.0f) / 7.0f;
-            float window = cosf(d * 1.25f);
-            if (window < 0.2f) window = 0.2f;
-
-            float wave1 = sinf(phase + (float)i * 0.75f);
-            float wave2 = cosf(phase * 1.4f - (float)i * 0.5f);
-            float m = 0.5f + 0.35f * wave1 + 0.15f * wave2;
-
-            int h = 3 + (int)(eff_factor * window * m * 28.0f);
-            if (h < 3) h = 3;
+            int h = bands[i];
+            if (h < 2) h = 2;
             if (h > 32) h = 32;
 
             if (wave_bars_[i]) {
@@ -164,7 +157,7 @@ public:
         lv_obj_set_scrollbar_mode(center_line_obj_, LV_SCROLLBAR_MODE_OFF);
         lv_obj_align(center_line_obj_, LV_ALIGN_CENTER, 0, 0);
 
-        // 4. 屏幕正中间动态波浪条容器 (录音与播放时动态显示，摆脱字体依赖，100% 纯白像素呈现)
+        // 4. 屏幕正中间动态波浪条容器 (录音与播放时动态显示真实 FFT 频谱)
         wave_container_ = lv_obj_create(screen);
         lv_obj_set_size(wave_container_, 140, 40);
         lv_obj_set_style_bg_opa(wave_container_, LV_OPA_TRANSP, 0);
@@ -244,7 +237,71 @@ public:
             esp_timer_create(&vol_timer_args, &volume_hide_timer_);
         }
 
-        // 7. 动态波浪线 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
+        // 7. 飞书网关配对选择弹窗 (黑底白边，清晰列出可配对的飞书服务)
+        gateway_modal_ = lv_obj_create(screen);
+        lv_obj_set_size(gateway_modal_, 224, 250);
+        lv_obj_align(gateway_modal_, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_color(gateway_modal_, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(gateway_modal_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(gateway_modal_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_border_width(gateway_modal_, 2, 0);
+        lv_obj_set_style_radius(gateway_modal_, 8, 0);
+        lv_obj_set_style_pad_all(gateway_modal_, 8, 0);
+        lv_obj_set_flex_flow(gateway_modal_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(gateway_modal_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(gateway_modal_, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_add_flag(gateway_modal_, LV_OBJ_FLAG_HIDDEN);
+
+        gateway_title_label_ = lv_label_create(gateway_modal_);
+        if (text_font) lv_obj_set_style_text_font(gateway_title_label_, text_font, 0);
+        lv_obj_set_style_text_color(gateway_title_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_label_set_text(gateway_title_label_, "[ 选择飞书服务 ]");
+
+        gateway_sub_label_ = lv_label_create(gateway_modal_);
+        if (text_font) lv_obj_set_style_text_font(gateway_sub_label_, text_font, 0);
+        lv_obj_set_style_text_color(gateway_sub_label_, lv_color_hex(0xAAAAAA), 0);
+        lv_label_set_text(gateway_sub_label_, "短按▲/▼选择  OK确认配对");
+
+        lv_obj_t* sep = lv_obj_create(gateway_modal_);
+        lv_obj_set_size(sep, 204, 1);
+        lv_obj_set_style_bg_color(sep, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(sep, 0, 0);
+        lv_obj_set_style_margin_top(sep, 2, 0);
+        lv_obj_set_style_margin_bottom(sep, 4, 0);
+
+        gateway_list_box_ = lv_obj_create(gateway_modal_);
+        lv_obj_set_size(gateway_list_box_, 208, 150);
+        lv_obj_set_style_bg_opa(gateway_list_box_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(gateway_list_box_, 0, 0);
+        lv_obj_set_style_pad_all(gateway_list_box_, 0, 0);
+        lv_obj_set_flex_flow(gateway_list_box_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(gateway_list_box_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(gateway_list_box_, LV_SCROLLBAR_MODE_AUTO);
+
+        for (size_t i = 0; i < kMaxGatewayItems; i++) {
+            gateway_item_btns_[i] = lv_obj_create(gateway_list_box_);
+            lv_obj_set_size(gateway_item_btns_[i], 200, 28);
+            lv_obj_set_style_radius(gateway_item_btns_[i], 4, 0);
+            lv_obj_set_style_pad_all(gateway_item_btns_[i], 2, 0);
+            lv_obj_set_style_border_width(gateway_item_btns_[i], 1, 0);
+            lv_obj_set_scrollbar_mode(gateway_item_btns_[i], LV_SCROLLBAR_MODE_OFF);
+
+            gateway_item_labels_[i] = lv_label_create(gateway_item_btns_[i]);
+            if (text_font) lv_obj_set_style_text_font(gateway_item_labels_[i], text_font, 0);
+            lv_obj_align(gateway_item_labels_[i], LV_ALIGN_LEFT_MID, 4, 0);
+
+            lv_obj_add_flag(gateway_item_btns_[i], LV_OBJ_FLAG_HIDDEN);
+
+            lv_obj_add_event_cb(gateway_item_btns_[i], [](lv_event_t* e) {
+                auto display = static_cast<AiPassportDisplay*>(lv_event_get_user_data(e));
+                int idx = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e));
+                display->SelectAndConnectGateway(idx);
+            }, LV_EVENT_CLICKED, this);
+            lv_obj_set_user_data(gateway_item_btns_[i], (void*)(intptr_t)i);
+        }
+
+        // 8. 真实 FFT 频谱 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
         if (!wave_timer_) {
             wave_timer_ = lv_timer_create([](lv_timer_t* timer) {
                 auto self = static_cast<AiPassportDisplay*>(lv_timer_get_user_data(timer));
@@ -252,7 +309,7 @@ public:
             }, 50, this);
         }
 
-        // 8. 确保底部栏默认隐藏，保持纯粹极简
+        // 9. 确保底部栏默认隐藏，保持纯粹极简
         if (bottom_bar_) {
             lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -267,15 +324,10 @@ public:
                             (state == kDeviceStateListening);
         bool is_playing = (state == kDeviceStateSpeaking) || (!audio_service.IsPlaybackIdle());
 
-        if (is_recording) {
-            wave_frame_++;
-            uint16_t rms = audio_service.GetInputEnergyRms();
-            RenderWaveBars(rms, wave_frame_);
-            was_active_wave_ = true;
-        } else if (is_playing) {
-            wave_frame_++;
-            uint16_t rms = audio_service.GetOutputEnergyRms();
-            RenderWaveBars(rms, wave_frame_);
+        if (is_recording || is_playing) {
+            uint8_t bands[kWaveBarsCount];
+            audio_service.GetSpectrumBands(bands);
+            RenderFftSpectrum(bands);
             was_active_wave_ = true;
         } else {
             if (was_active_wave_) {
@@ -317,6 +369,119 @@ public:
         DisplayLockGuard lock(this);
         was_active_wave_ = false;
         RenderIdleLine();
+    }
+
+    void ShowGatewayList(const std::vector<FeishuGateway>& gateways) {
+        DisplayLockGuard lock(this);
+        cached_gateways_ = gateways;
+        if (gateway_modal_) {
+            lv_obj_remove_flag(gateway_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+        UpdateGatewayListUI();
+    }
+
+    void HideGatewayList() {
+        DisplayLockGuard lock(this);
+        if (gateway_modal_) {
+            lv_obj_add_flag(gateway_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    bool IsGatewayListVisible() const {
+        if (!gateway_modal_) return false;
+        return !lv_obj_has_flag(gateway_modal_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    int GetSelectedGatewayIndex() const {
+        return selected_gateway_index_;
+    }
+
+    void MoveGatewaySelectionUp() {
+        DisplayLockGuard lock(this);
+        if (cached_gateways_.empty()) return;
+        if (selected_gateway_index_ > 0) {
+            selected_gateway_index_--;
+            UpdateGatewayListUI();
+        }
+    }
+
+    void MoveGatewaySelectionDown() {
+        DisplayLockGuard lock(this);
+        if (cached_gateways_.empty()) return;
+        if (selected_gateway_index_ < (int)cached_gateways_.size() - 1) {
+            selected_gateway_index_++;
+            UpdateGatewayListUI();
+        }
+    }
+
+    void SelectAndConnectGateway(int index) {
+        selected_gateway_index_ = index;
+        if (index >= 0 && index < (int)cached_gateways_.size()) {
+            ShowGatewayConnecting(cached_gateways_[index].name);
+        }
+        Application::GetInstance().Schedule([this, index]() {
+            auto& app = Application::GetInstance();
+            app.ConnectFeishuGatewayByIndex(index);
+        });
+    }
+
+    void ShowGatewayConnecting(const std::string& name) {
+        DisplayLockGuard lock(this);
+        if (gateway_sub_label_) {
+            std::string text = "⏳ 正在连接: " + name + "\n请在飞书确认同意";
+            lv_label_set_text(gateway_sub_label_, text.c_str());
+        }
+    }
+
+    void UpdateGatewayListUI() {
+        if (!gateway_modal_) return;
+
+        if (cached_gateways_.empty()) {
+            lv_label_set_text(gateway_sub_label_, "🔍 搜索中... 请确认控制台已启动");
+            for (size_t i = 0; i < kMaxGatewayItems; i++) {
+                if (gateway_item_btns_[i]) {
+                    lv_obj_add_flag(gateway_item_btns_[i], LV_OBJ_FLAG_HIDDEN);
+                }
+            }
+            return;
+        }
+
+        lv_label_set_text(gateway_sub_label_, "短按▲/▼选择  OK确认配对");
+
+        if (selected_gateway_index_ >= (int)cached_gateways_.size()) {
+            selected_gateway_index_ = (int)cached_gateways_.size() - 1;
+        }
+        if (selected_gateway_index_ < 0) {
+            selected_gateway_index_ = 0;
+        }
+
+        for (size_t i = 0; i < kMaxGatewayItems; i++) {
+            if (!gateway_item_btns_[i]) continue;
+            if (i < cached_gateways_.size()) {
+                lv_obj_remove_flag(gateway_item_btns_[i], LV_OBJ_FLAG_HIDDEN);
+                const auto& gw = cached_gateways_[i];
+
+                char buf[64];
+                if ((int)i == selected_gateway_index_) {
+                    snprintf(buf, sizeof(buf), "▶ %s (%s)", gw.name.c_str(), gw.ip.c_str());
+                    // 选中项：白底黑字反色高亮
+                    lv_obj_set_style_bg_color(gateway_item_btns_[i], lv_color_hex(0xFFFFFF), 0);
+                    lv_obj_set_style_bg_opa(gateway_item_btns_[i], LV_OPA_COVER, 0);
+                    lv_obj_set_style_border_color(gateway_item_btns_[i], lv_color_hex(0xFFFFFF), 0);
+                    lv_obj_set_style_text_color(gateway_item_labels_[i], lv_color_hex(0x000000), 0);
+                } else {
+                    snprintf(buf, sizeof(buf), "  %s (%s)", gw.name.c_str(), gw.ip.c_str());
+                    // 未选中项：黑底灰框白字
+                    lv_obj_set_style_bg_color(gateway_item_btns_[i], lv_color_hex(0x000000), 0);
+                    lv_obj_set_style_bg_opa(gateway_item_btns_[i], LV_OPA_COVER, 0);
+                    lv_obj_set_style_border_color(gateway_item_btns_[i], lv_color_hex(0x666666), 0);
+                    lv_obj_set_style_text_color(gateway_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
+                }
+                lv_label_set_text(gateway_item_labels_[i], buf);
+            } else {
+                lv_obj_add_flag(gateway_item_btns_[i], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
     }
 
     virtual void SetEmotion(const char* emotion) override {
@@ -382,6 +547,7 @@ private:
 
     void EnterOrRefreshStandbyClock() {
         if (!display_) return;
+        if (display_->IsGatewayListVisible()) return;
         is_in_standby_clock_ = true;
 
         time_t now = time(NULL);
@@ -603,6 +769,10 @@ private:
         auto up = adc_button_[kAdcButtonUp];
         up->OnClick([this]() {
             TouchActivity("UP");
+            if (display_ && display_->IsGatewayListVisible()) {
+                display_->MoveGatewaySelectionUp();
+                return;
+            }
             Application::GetInstance().Schedule([this]() {
                 // 音量键专心调节音量，不中断正在播报的语音
                 ChangeVolume(+10);
@@ -643,6 +813,10 @@ private:
         auto down = adc_button_[kAdcButtonDown];
         down->OnClick([this]() {
             TouchActivity("DOWN");
+            if (display_ && display_->IsGatewayListVisible()) {
+                display_->MoveGatewaySelectionDown();
+                return;
+            }
             Application::GetInstance().Schedule([this]() {
                 // 音量键专心调节音量，不中断正在播报的语音
                 ChangeVolume(-10);
@@ -699,6 +873,11 @@ private:
         ok->OnClick([this]() {
             TouchActivity("OK");
             if (is_push_to_talk_active_) {
+                return;
+            }
+            if (display_ && display_->IsGatewayListVisible()) {
+                int idx = display_->GetSelectedGatewayIndex();
+                display_->SelectAndConnectGateway(idx);
                 return;
             }
             Application::GetInstance().Schedule([this]() {
@@ -890,6 +1069,22 @@ public:
         };
         esp_timer_create(&dim_timer_args, &dim_timer_);
         esp_timer_start_periodic(dim_timer_, 2000000);
+
+        // 监听局域网飞书网关列表变动，若未连接且发现候选网关，自动呼出选择弹窗
+        Application::GetInstance().SetOnFeishuGatewaysChanged([this](const std::vector<FeishuGateway>& gateways) {
+            if (!display_) return;
+            auto& app = Application::GetInstance();
+            if (app.IsFeishuConnected()) {
+                display_->HideGatewayList();
+                return;
+            }
+            if (!gateways.empty()) {
+                display_->ShowGatewayList(gateways);
+                TouchActivity();
+            } else {
+                display_->HideGatewayList();
+            }
+        });
     }
 
     virtual AudioCodec* GetAudioCodec() override {

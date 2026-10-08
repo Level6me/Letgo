@@ -7,7 +7,15 @@
 #include <freertos/event_groups.h>
 #include <freertos/task.h>
 #include <esp_timer.h>
-#include <string>
+#include <vector>
+#include <mutex>
+#include <functional>
+
+struct FeishuGateway {
+    std::string name;
+    std::string ip;
+    int port = 8765;
+};
 
 class FeishuProtocol : public Protocol {
 public:
@@ -36,6 +44,12 @@ public:
     bool HasPendingGateway() const { return !pending_gw_ip_.empty() && !connected_; }
     const std::string& GetPendingGatewayName() const { return pending_gw_name_; }
 
+    // 局域网多网关列表管理
+    std::vector<FeishuGateway> GetDiscoveredGateways() const;
+    void ConnectToGatewayByIndex(size_t index);
+    void ConnectToGateway(const std::string& ip, int port);
+    void SetOnGatewaysChanged(std::function<void(const std::vector<FeishuGateway>&)> cb);
+
 private:
     std::unique_ptr<WebSocket> websocket_;
     std::string gateway_ip_;
@@ -47,12 +61,15 @@ private:
     bool connected_ = false;
     bool is_paired_ = false;
 
+    std::vector<FeishuGateway> discovered_gateways_;
+    mutable std::mutex gateways_mutex_;
+    std::function<void(const std::vector<FeishuGateway>&)> on_gateways_changed_;
+
     TaskHandle_t discovery_task_handle_ = nullptr;
     esp_timer_handle_t ping_timer_ = nullptr;
 
     bool SendText(const std::string& text) override;
     void StartDiscovery();
-    void ConnectToGateway(const std::string& ip, int port);
     void HandleServerJson(const char* data, size_t len);
     void SendHandshake();
     void SendPing();

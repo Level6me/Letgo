@@ -547,6 +547,9 @@ void Application::InitializeProtocol() {
         display->SetStatus(Lang::Strings::FEISHU_CONSOLE_READY);
         display->SetEmotion("neutral");
         display->SetChatMessage("system", Lang::Strings::FEISHU_HOLD_OK_TALK);
+        if (on_feishu_gateways_changed_) {
+            on_feishu_gateways_changed_({});
+        }
     });
 
     protocol_->OnNetworkError([this](const std::string& message) {
@@ -1433,6 +1436,35 @@ void Application::ConnectSelectedFeishuGateway() {
     if (protocol_) {
         auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
         feishu->ConnectSelectedGateway();
+    }
+}
+
+std::vector<FeishuGateway> Application::GetDiscoveredFeishuGateways() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        return feishu->GetDiscoveredGateways();
+    }
+    return {};
+}
+
+void Application::ConnectFeishuGatewayByIndex(size_t index) {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        feishu->ConnectToGatewayByIndex(index);
+    }
+}
+
+void Application::ConnectFeishuGateway(const std::string& ip, int port) {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        feishu->ConnectToGateway(ip, port);
+    }
+}
+
+void Application::SetOnFeishuGatewaysChanged(std::function<void(const std::vector<FeishuGateway>&)> cb) {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        feishu->SetOnGatewaysChanged(std::move(cb));
     }
 }
 

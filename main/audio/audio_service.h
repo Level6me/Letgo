@@ -125,6 +125,7 @@ public:
     bool IsVoiceDetected() const { return voice_detected_; }
     uint16_t GetInputEnergyRms() const { return input_energy_rms_.load(std::memory_order_relaxed); }
     uint16_t GetOutputEnergyRms() const { return output_energy_rms_.load(std::memory_order_relaxed); }
+    void GetSpectrumBands(uint8_t bands[15]) const;
     bool IsIdle();
     bool IsPlaybackIdle();
     bool IsWakeWordRunning() const {
@@ -211,6 +212,8 @@ private:
     std::atomic<bool> audio_input_need_warmup_{false};
     std::atomic<uint16_t> input_energy_rms_{0};
     std::atomic<uint16_t> output_energy_rms_{0};
+    mutable std::atomic<uint8_t> spectrum_bands_[15]{};
+    uint8_t decay_bands_[15]{};
 
     esp_timer_handle_t audio_power_timer_ = nullptr;
     std::chrono::steady_clock::time_point last_input_time_;
