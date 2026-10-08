@@ -295,7 +295,8 @@ public:
 
             lv_obj_add_event_cb(gateway_item_btns_[i], [](lv_event_t* e) {
                 auto display = static_cast<AiPassportDisplay*>(lv_event_get_user_data(e));
-                int idx = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e));
+                auto target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+                int idx = (int)(intptr_t)lv_obj_get_user_data(target);
                 display->SelectAndConnectGateway(idx);
             }, LV_EVENT_CLICKED, this);
             lv_obj_set_user_data(gateway_item_btns_[i], (void*)(intptr_t)i);
