@@ -1,12 +1,14 @@
 #include "wifi_board.h"
 #include "wifi_manager.h"
 #include "display/lcd_display.h"
+#include "display/lvgl_display/lvgl_theme.h"
 #include "codecs/es8311_audio_codec.h"
 #include "application.h"
 #include "button.h"
 #include "config.h"
 #include "assets/lang_config.h"
 #include "cw2017_battery_monitor.h"
+#include "settings.h"
 
 #include <esp_log.h>
 #include <esp_lcd_panel_vendor.h>
@@ -28,12 +30,146 @@ enum {
     kAdcButtonNum,
 };
 
+/**
+ * @brief 专属极简纯黑白高对比度显示驱动
+ *
+ * 核心规范：
+ * 1. 屏幕正中间平时只有一根纯白水平直线 (140px宽, 2px高)；
+ * 2. 录音时变成随声音能量流动的正弦波浪线；
+ * 3. 彻底移除一切彩色 Emoji、彩色状态点、彩色气泡，全界面纯黑白单色设计。
+ */
+class AiPassportDisplay : public SpiLcdDisplay {
+private:
+    lv_obj_t* center_line_obj_ = nullptr;
+    lv_obj_t* center_wave_label_ = nullptr;
+    bool is_recording_wave_ = false;
+
+public:
+    AiPassportDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
+                      int width, int height, int offset_x, int offset_y,
+                      bool mirror_x, bool mirror_y, bool swap_xy)
+        : SpiLcdDisplay(panel_io, panel, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy) {}
+
+    virtual void SetupUI() override {
+        SpiLcdDisplay::SetupUI();
+
+        DisplayLockGuard lock(this);
+        auto screen = lv_screen_active();
+
+        // 1. 强制应用纯黑白两色高对比度极简主题 (黑底白字，去除一切彩色气泡)
+        auto dark_theme = LvglThemeManager::GetInstance().GetTheme("dark");
+        if (dark_theme) {
+            dark_theme->set_background_color(lv_color_hex(0x000000));
+            dark_theme->set_text_color(lv_color_hex(0xFFFFFF));
+            dark_theme->set_chat_background_color(lv_color_hex(0x000000));
+            dark_theme->set_user_bubble_color(lv_color_hex(0x000000));
+            dark_theme->set_assistant_bubble_color(lv_color_hex(0x000000));
+            dark_theme->set_system_bubble_color(lv_color_hex(0x000000));
+            dark_theme->set_system_text_color(lv_color_hex(0xFFFFFF));
+            dark_theme->set_border_color(lv_color_hex(0xFFFFFF));
+            dark_theme->set_low_battery_color(lv_color_hex(0xFFFFFF));
+            SetTheme(dark_theme);
+        }
+
+        // 2. 彻底隐藏默认表情包与机器人头像
+        if (emoji_label_) {
+            lv_obj_add_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (emoji_image_) {
+            lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // 3. 屏幕正中间平时展示的纯白水平直线 (宽140px, 高2px, 居中对齐)
+        center_line_obj_ = lv_obj_create(screen);
+        lv_obj_set_size(center_line_obj_, 140, 2);
+        lv_obj_set_style_bg_color(center_line_obj_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(center_line_obj_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(center_line_obj_, 0, 0);
+        lv_obj_set_style_radius(center_line_obj_, 1, 0);
+        lv_obj_set_scrollbar_mode(center_line_obj_, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_align(center_line_obj_, LV_ALIGN_CENTER, 0, 0);
+
+        // 4. 屏幕正中间录音时动态波浪线文本组件
+        center_wave_label_ = lv_label_create(screen);
+        lv_obj_set_style_text_color(center_wave_label_, lv_color_hex(0xFFFFFF), 0);
+        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+        if (lvgl_theme && lvgl_theme->text_font()) {
+            lv_obj_set_style_text_font(center_wave_label_, lvgl_theme->text_font()->font(), 0);
+        }
+        lv_obj_set_style_text_align(center_wave_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(center_wave_label_, "");
+        lv_obj_align(center_wave_label_, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_add_flag(center_wave_label_, LV_OBJ_FLAG_HIDDEN);
+
+        // 5. 确保底部栏默认隐藏，保持纯粹极简
+        if (bottom_bar_) {
+            lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    virtual void SetEmotion(const char* emotion) override {
+        // 彻底屏蔽 Emoji 图标，屏幕正中只保持直线与流动波浪线
+    }
+
+    virtual void SetChatMessage(const char* role, const char* content) override {
+        if (strcmp(role, "system") == 0) {
+            // 系统状态提示不占用屏幕中心或底部，保持极简
+            ClearChatMessages();
+            return;
+        }
+        SpiLcdDisplay::SetChatMessage(role, content);
+    }
+
+    virtual void SetTheme(Theme* theme) override {
+        if (theme) {
+            auto lvgl_theme = static_cast<LvglTheme*>(theme);
+            lvgl_theme->set_background_color(lv_color_hex(0x000000));
+            lvgl_theme->set_text_color(lv_color_hex(0xFFFFFF));
+            lvgl_theme->set_chat_background_color(lv_color_hex(0x000000));
+            lvgl_theme->set_user_bubble_color(lv_color_hex(0x000000));
+            lvgl_theme->set_assistant_bubble_color(lv_color_hex(0x000000));
+            lvgl_theme->set_system_bubble_color(lv_color_hex(0x000000));
+            lvgl_theme->set_system_text_color(lv_color_hex(0xFFFFFF));
+            lvgl_theme->set_border_color(lv_color_hex(0xFFFFFF));
+            lvgl_theme->set_low_battery_color(lv_color_hex(0xFFFFFF));
+        }
+        SpiLcdDisplay::SetTheme(theme);
+    }
+
+    void ShowIdleStraightLine() {
+        DisplayLockGuard lock(this);
+        is_recording_wave_ = false;
+        if (center_line_obj_) {
+            lv_obj_remove_flag(center_line_obj_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (center_wave_label_) {
+            lv_obj_add_flag(center_wave_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (emoji_label_) {
+            lv_obj_add_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    void UpdateRecordingWave(const char* wave_text) {
+        DisplayLockGuard lock(this);
+        is_recording_wave_ = true;
+        if (center_line_obj_) {
+            lv_obj_add_flag(center_line_obj_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (center_wave_label_) {
+            lv_label_set_text(center_wave_label_, wave_text);
+            lv_obj_remove_flag(center_wave_label_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_align(center_wave_label_, LV_ALIGN_CENTER, 0, 0);
+        }
+    }
+};
+
 class AiPassportBoard : public WifiBoard {
 private:
     i2c_master_bus_handle_t codec_i2c_bus_;
     Button* adc_button_[kAdcButtonNum];
     adc_oneshot_unit_handle_t adc_handle_ = nullptr;
-    LcdDisplay* display_;
+    AiPassportDisplay* display_;
     Cw2017BatteryMonitor* battery_;
     int64_t last_activity_time_ = 0;
     uint8_t current_brightness_ = 100;
@@ -50,10 +186,10 @@ private:
             ESP_LOGI(TAG, "Barge-in triggered by physical key! Aborting speech...");
             app.AbortSpeaking(kAbortReasonNone);
             app.GetAudioService().ResetDecoder();
-            if (GetDisplay()) {
-                GetDisplay()->ShowNotification("⏹️ 语音播报已打断", 1200);
-                GetDisplay()->SetStatus("⏹️ 已打断");
-                GetDisplay()->SetEmotion("neutral");
+            if (display_) {
+                display_->ShowNotification("[语音播报已打断]", 1200);
+                display_->SetStatus("[已打断]");
+                display_->ShowIdleStraightLine();
             }
             return true;
         }
@@ -61,66 +197,49 @@ private:
     }
 
     void EnterOrRefreshStandbyClock() {
-        auto display = GetDisplay();
-        if (!display) return;
+        if (!display_) return;
         is_in_standby_clock_ = true;
 
         time_t now = time(NULL);
         struct tm* tm_now = localtime(&now);
 
         char time_buf[32];
-        char date_buf[64];
         if (tm_now && tm_now->tm_year >= 2025 - 1900) {
             strftime(time_buf, sizeof(time_buf), "%H:%M:%S", tm_now);
-            static const char* kWeekDays[] = {"日", "一", "二", "三", "四", "五", "六"};
-            snprintf(date_buf, sizeof(date_buf), "%04d-%02d-%02d 星期%s",
-                     tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday,
-                     kWeekDays[tm_now->tm_wday % 7]);
         } else {
             int uptime_sec = (int)(esp_timer_get_time() / 1000000);
-            snprintf(time_buf, sizeof(time_buf), "运行 %02d:%02d:%02d",
+            snprintf(time_buf, sizeof(time_buf), "%02d:%02d:%02d",
                      uptime_sec / 3600, (uptime_sec % 3600) / 60, uptime_sec % 60);
-            snprintf(date_buf, sizeof(date_buf), "设备待命");
         }
 
         int battery_level = -1;
-        int battery_mv = -1;
         if (battery_ && battery_->IsPresent()) {
             battery_level = battery_->GetBatteryLevel();
-            battery_mv = battery_->GetBatteryVoltageMv();
         }
 
         auto& app = Application::GetInstance();
         bool feishu_online = app.IsFeishuConnected();
-        std::string gw = app.GetFeishuGatewayIp();
 
-        char dashboard_buf[192];
+        char status_buf[64];
         if (battery_level >= 0) {
-            snprintf(dashboard_buf, sizeof(dashboard_buf),
-                     "🕒 %s\n📅 %s\n🔋 电量: %d%% (%d mV)\n%s",
-                     time_buf, date_buf, battery_level, battery_mv,
-                     feishu_online ? ("🟢 控制台: " + gw).c_str() : "⚪ 控制台: 离线 [双击上键搜索]");
+            snprintf(status_buf, sizeof(status_buf), "%s | %s | %d%%",
+                     time_buf, feishu_online ? "已连接" : "离线", battery_level);
         } else {
-            snprintf(dashboard_buf, sizeof(dashboard_buf),
-                     "🕒 %s\n📅 %s\n%s",
-                     time_buf, date_buf,
-                     feishu_online ? ("🟢 控制台: " + gw).c_str() : "⚪ 控制台: 离线 [双击上键搜索]");
+            snprintf(status_buf, sizeof(status_buf), "%s | %s",
+                     time_buf, feishu_online ? "已连接" : "离线");
         }
 
-        display->SetChatMessage("system", dashboard_buf);
-        display->SetStatus("🕒 随身时钟看板");
-        display->SetEmotion("neutral");
+        display_->SetStatus(status_buf);
+        display_->ShowIdleStraightLine();
     }
 
     void ExitStandbyClock() {
         if (!is_in_standby_clock_) return;
         is_in_standby_clock_ = false;
-        auto display = GetDisplay();
-        if (display) {
+        if (display_) {
             auto& app = Application::GetInstance();
-            display->SetChatMessage("system", app.IsFeishuConnected() ? Lang::Strings::FEISHU_HOLD_OK_TALK : Lang::Strings::STANDBY);
-            display->SetStatus(app.IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
-            display->SetEmotion("neutral");
+            display_->ShowIdleStraightLine();
+            display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
         }
     }
 
@@ -134,7 +253,7 @@ private:
                     }
                     self->wave_frame_++;
 
-                    // 状态栏每 5 帧(~250ms)刷新一次跳跃式波形字符，保证极致顺滑
+                    // 状态栏与正弦波浪线每 5 帧(~250ms)刷新一次，极致平滑
                     if (self->wave_frame_ % 5 == 0) {
                         int elapsed_sec = (int)((esp_timer_get_time() - self->record_start_time_) / 1000000);
                         // 获取当前采样周期的真实 RMS 声压能量
@@ -148,10 +267,8 @@ private:
                                 self->StopPushToTalk(elapsed_sec);
                                 return;
                             }
-                            auto display = self->GetDisplay();
-                            if (display) {
-                                // 根据 RMS 声压真实动态计算频谱波形
-                                // 基础环境噪声阈值通常在 200~500，正常说话在 1500~6000，大声在 8000+
+                            if (self->display_) {
+                                // 根据真实声压 RMS 动态切换正弦波浪振幅
                                 int energy_level = 0;
                                 if (rms > 6000) energy_level = 6;
                                 else if (rms > 4000) energy_level = 5;
@@ -160,10 +277,8 @@ private:
                                 else if (rms > 500)  energy_level = 2;
                                 else if (rms > 150)  energy_level = 1;
 
-                                // 拟态连续流动正弦波浪线（Siri / 音频能量光波）
-                                // 采用多点正弦拟合采样字符，随声压 RMS 动态伸缩波浪起伏振幅
                                 static const char* kSineWaves[4][8] = {
-                                    // 1. 微弱/待命波浪 (低振幅平缓流动)
+                                    // 1. 微弱语声/平缓流动正弦波
                                     {
                                         "∿∿∿∽∽∽∿∿∿∽∽∽",
                                         "∽∿∿∿∽∽∽∿∿∿∽∽",
@@ -174,7 +289,7 @@ private:
                                         "∿∿∿∽∽∽∿∿∿∽∽∽",
                                         "∽∿∿∿∽∽∽∿∿∿∽∽"
                                     },
-                                    // 2. 正常语声波浪 (中等振幅起伏波浪)
+                                    // 2. 正常语声起伏波浪
                                     {
                                         "  ▂▃▅▆▇▆▅▃▂   ▂▃▅▆▇▆▅▃▂  ",
                                         " ▂▃▅▆▇█▇▆▅▃▂ ▂▃▅▆▇█▇▆▅▃▂ ",
@@ -185,7 +300,7 @@ private:
                                         "  ▂▃▅▆▇▆▅▃▂   ▂▃▅▆▇▆▅▃▂  ",
                                         "   ▂▃▅▃▂        ▂▃▅▃▂   "
                                     },
-                                    // 3. 饱满高动态波浪 (全屏激荡起伏)
+                                    // 3. 饱满高动态波浪
                                     {
                                         "▃▅▆▇█████▇▆▅▃▅▆▇█████▇▆▅",
                                         "▅▆▇███████▇▆▅▆▇███████▇▆",
@@ -216,19 +331,14 @@ private:
 
                                 const char* center_sine = kSineWaves[wave_band][self->wave_frame_ % 8];
 
-                                // 顶部状态栏：保持清爽稳定
+                                // 顶部状态栏：纯白文本
                                 char status_buf[48];
-                                snprintf(status_buf, sizeof(status_buf), "🎙️ 正在录音 %02d:%02d",
+                                snprintf(status_buf, sizeof(status_buf), "[录音中 %02d:%02d]",
                                          elapsed_sec / 60, elapsed_sec % 60);
-                                display->SetStatus(status_buf);
-                                display->SetEmotion("listening");
+                                self->display_->SetStatus(status_buf);
 
-                                // 屏幕正中央视区：渲染动态起伏的实时正弦流动波浪
-                                char wave_display[160];
-                                snprintf(wave_display, sizeof(wave_display),
-                                         "🎙️ 正在录音 (%d秒)\n\n%s\n\n松开按键发送",
-                                         elapsed_sec, center_sine);
-                                display->SetChatMessage("system", wave_display);
+                                // 屏幕正中央：随声音流动的波浪线
+                                self->display_->UpdateRecordingWave(center_sine);
                             }
                         });
                     }
@@ -239,7 +349,7 @@ private:
             };
             esp_timer_create(&timer_args, &record_timer_);
         }
-        // 50ms 周期（20Hz 刷新率），在 ESP32-S3 SPI 传输与 CPU 负荷之间取得最佳平衡
+        // 50ms 周期（20Hz 刷新率）
         esp_timer_start_periodic(record_timer_, 50000);
     }
 
@@ -257,19 +367,19 @@ private:
         StopRecordTimer();
 
         auto& app = Application::GetInstance();
-        auto display = GetDisplay();
+
+        // 录音结束，立即平滑恢复屏幕正中心水平直线
+        if (display_) {
+            display_->ShowIdleStraightLine();
+        }
 
         if (duration_sec < 1) {
             if (app.GetDeviceState() == kDeviceStateListening) {
                 app.StopListening();
             }
-            if (display) {
-                display->ShowNotification("⚠️ 录音时间太短(<1秒)\n已取消发送", 2000);
-                display->SetStatus(app.IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
-                display->SetEmotion("neutral");
-                if (app.IsFeishuConnected()) {
-                    display->SetChatMessage("system", Lang::Strings::FEISHU_HOLD_OK_TALK);
-                }
+            if (display_) {
+                display_->ShowNotification("[录音时间太短(<1秒)]\n[已取消发送]", 2000);
+                display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
             }
             return;
         }
@@ -279,12 +389,11 @@ private:
             app.StopListening();
         }
 
-        if (display) {
-            char tip[80];
-            snprintf(tip, sizeof(tip), "📤 录音完成 (%d秒)\n%s", duration_sec, Lang::Strings::FEISHU_SENDING);
-            display->ShowNotification(tip, 1200);
-            display->SetStatus(Lang::Strings::FEISHU_SENDING);
-            display->SetEmotion("thinking");
+        if (display_) {
+            char tip[64];
+            snprintf(tip, sizeof(tip), "[录音完成 (%d秒)]\n[发送中...]", duration_sec);
+            display_->ShowNotification(tip, 1200);
+            display_->SetStatus("[发送中...]");
         }
     }
 
@@ -319,16 +428,16 @@ private:
         }
         codec->SetOutputVolume(volume);
 
-        // 可视化音量胶囊 HUD 进度槽
+        // 可视化音量 HUD 进度槽 (纯黑白极简无 emoji)
         int filled = (volume + 5) / 10;
         if (filled > 10) filled = 10;
-        std::string hud = "🔊 音量: " + std::to_string(volume) + "%\n[";
+        std::string hud = "音量: " + std::to_string(volume) + "%\n[";
         for (int i = 0; i < 10; i++) {
             hud += (i < filled) ? "■" : "·";
         }
         hud += "]";
-        if (GetDisplay()) {
-            GetDisplay()->ShowNotification(hud.c_str(), 1600);
+        if (display_) {
+            display_->ShowNotification(hud.c_str(), 1600);
         }
     }
 
@@ -349,6 +458,9 @@ private:
         }
         if (is_in_standby_clock_) {
             ExitStandbyClock();
+        }
+        if (display_ && !is_push_to_talk_active_) {
+            display_->ShowIdleStraightLine();
         }
         if (btn_name) {
             ESP_LOGD(TAG, "TouchActivity triggered by button: %s", btn_name);
@@ -406,11 +518,15 @@ private:
             Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
                 if (!app.IsFeishuConnected()) {
-                    GetDisplay()->ShowNotification(Lang::Strings::FEISHU_SEARCH_NOTICE, 3000);
-                    GetDisplay()->SetStatus(Lang::Strings::FEISHU_SEARCHING);
+                    if (display_) {
+                        display_->ShowNotification("[正在搜索控制台网关...]", 3000);
+                        display_->SetStatus("[搜索中...]");
+                    }
                     app.TriggerFeishuDiscovery();
                 } else {
-                    GetDisplay()->ShowNotification("🔄 刷新看板与控制台数据...", 2000);
+                    if (display_) {
+                        display_->ShowNotification("[正在刷新数据...]", 2000);
+                    }
                     app.SendFeishuButtonEvent("up", "double_click");
                 }
             });
@@ -418,7 +534,9 @@ private:
         up->OnLongPress([this]() {
             TouchActivity("UP_LONG");
             Application::GetInstance().Schedule([this]() {
-                GetDisplay()->ShowNotification("📶 进入热点配网模式...", 3000);
+                if (display_) {
+                    display_->ShowNotification("[进入热点配网模式...]", 3000);
+                }
                 EnterWifiConfigMode();
             });
         });
@@ -454,16 +572,18 @@ private:
                     battery_mv = battery_->GetBatteryVoltageMv();
                 }
 
-                std::string info = "📶 本机IP: " + ip;
+                std::string info = "IP: " + ip;
                 if (connected) {
-                    info += "\n🟢 控制台: 已连接 (" + gw + ")";
+                    info += "\n控制台: 已连接 (" + gw + ")";
                 } else {
-                    info += "\n⚪ 控制台: 未连接 [双击上键搜索]";
+                    info += "\n控制台: 未连接 [双击上键搜索]";
                 }
                 if (battery_level >= 0) {
-                    info += "\n🔋 电量: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
+                    info += "\n电量: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
                 }
-                GetDisplay()->ShowNotification(info.c_str(), 4500);
+                if (display_) {
+                    display_->ShowNotification(info.c_str(), 4500);
+                }
                 app.SendFeishuButtonEvent("down", "double_click");
             });
         });
@@ -502,8 +622,8 @@ private:
                 if (CheckAndAbortSpeaking()) {
                     return;
                 }
-                if (GetDisplay()) {
-                    GetDisplay()->ShowNotification("🔄 正在请求重播上一句...", 1500);
+                if (display_) {
+                    display_->ShowNotification("[正在请求重播上一句...]", 1500);
                 }
                 if (app.IsFeishuConnected()) {
                     app.SendFeishuButtonEvent("ok", "double_click");
@@ -524,10 +644,9 @@ private:
             Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
                 app.StartListening();
-                if (GetDisplay()) {
-                    GetDisplay()->SetStatus("🎙️ 正在录音 00:00");
-                    GetDisplay()->SetEmotion("listening");
-                    GetDisplay()->SetChatMessage("system", "🎙️ 正在录音...\n\n∿∿∿∽∽∽∿∿∿∽∽∽\n\n松开按键发送");
+                if (display_) {
+                    display_->SetStatus("[录音中 00:00]");
+                    display_->UpdateRecordingWave("∿∿∿∽∽∽∿∿∿∽∽∽");
                 }
                 StartRecordTimer();
             });
@@ -614,10 +733,10 @@ private:
         esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
         esp_lcd_panel_disp_on_off(panel, true);
 
-        display_ = new SpiLcdDisplay(panel_io, panel,
-                                     DISPLAY_WIDTH, DISPLAY_HEIGHT,
-                                     DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y,
-                                     DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+        display_ = new AiPassportDisplay(panel_io, panel,
+                                         DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                         DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y,
+                                         DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
 
 public:
@@ -627,6 +746,9 @@ public:
         InitializeDisplay();
         InitializeButtons();
         GetBacklight()->RestoreBrightness();
+
+        Settings settings("display", true);
+        settings.SetString("theme", "dark");
 
         last_activity_time_ = esp_timer_get_time();
         esp_timer_create_args_t dim_timer_args = {
