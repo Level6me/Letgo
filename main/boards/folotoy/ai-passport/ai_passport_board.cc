@@ -16,6 +16,7 @@
 #include <driver/spi_common.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <time.h>
 
 #define TAG "AiPassport"
 
@@ -40,6 +41,88 @@ private:
     bool is_push_to_talk_active_ = false;
     int64_t record_start_time_ = 0;
     esp_timer_handle_t record_timer_ = nullptr;
+    bool is_in_standby_clock_ = false;
+    uint32_t wave_frame_ = 0;
+
+    bool CheckAndAbortSpeaking() {
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateSpeaking) {
+            ESP_LOGI(TAG, "Barge-in triggered by physical key! Aborting speech...");
+            app.AbortSpeaking(kAbortReasonNone);
+            app.GetAudioService().ResetDecoder();
+            if (GetDisplay()) {
+                GetDisplay()->ShowNotification("⏹️ 语音播报已打断", 1200);
+                GetDisplay()->SetStatus("⏹️ 已打断");
+                GetDisplay()->SetEmotion("neutral");
+            }
+            return true;
+        }
+        return false;
+    }
+
+    void EnterOrRefreshStandbyClock() {
+        auto display = GetDisplay();
+        if (!display) return;
+        is_in_standby_clock_ = true;
+
+        time_t now = time(NULL);
+        struct tm* tm_now = localtime(&now);
+
+        char time_buf[32];
+        char date_buf[64];
+        if (tm_now && tm_now->tm_year >= 2025 - 1900) {
+            strftime(time_buf, sizeof(time_buf), "%H:%M:%S", tm_now);
+            static const char* kWeekDays[] = {"日", "一", "二", "三", "四", "五", "六"};
+            snprintf(date_buf, sizeof(date_buf), "%04d-%02d-%02d 星期%s",
+                     tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday,
+                     kWeekDays[tm_now->tm_wday % 7]);
+        } else {
+            int uptime_sec = (int)(esp_timer_get_time() / 1000000);
+            snprintf(time_buf, sizeof(time_buf), "运行 %02d:%02d:%02d",
+                     uptime_sec / 3600, (uptime_sec % 3600) / 60, uptime_sec % 60);
+            snprintf(date_buf, sizeof(date_buf), "设备待命");
+        }
+
+        int battery_level = -1;
+        int battery_mv = -1;
+        if (battery_ && battery_->IsPresent()) {
+            battery_level = battery_->GetBatteryLevel();
+            battery_mv = battery_->GetBatteryVoltageMv();
+        }
+
+        auto& app = Application::GetInstance();
+        bool feishu_online = app.IsFeishuConnected();
+        std::string gw = app.GetFeishuGatewayIp();
+
+        char dashboard_buf[192];
+        if (battery_level >= 0) {
+            snprintf(dashboard_buf, sizeof(dashboard_buf),
+                     "🕒 %s\n📅 %s\n🔋 电量: %d%% (%d mV)\n%s",
+                     time_buf, date_buf, battery_level, battery_mv,
+                     feishu_online ? ("🟢 控制台: " + gw).c_str() : "⚪ 控制台: 离线 [双击上键搜索]");
+        } else {
+            snprintf(dashboard_buf, sizeof(dashboard_buf),
+                     "🕒 %s\n📅 %s\n%s",
+                     time_buf, date_buf,
+                     feishu_online ? ("🟢 控制台: " + gw).c_str() : "⚪ 控制台: 离线 [双击上键搜索]");
+        }
+
+        display->SetChatMessage("system", dashboard_buf);
+        display->SetStatus("🕒 随身时钟看板");
+        display->SetEmotion("neutral");
+    }
+
+    void ExitStandbyClock() {
+        if (!is_in_standby_clock_) return;
+        is_in_standby_clock_ = false;
+        auto display = GetDisplay();
+        if (display) {
+            auto& app = Application::GetInstance();
+            display->SetChatMessage("system", app.IsFeishuConnected() ? Lang::Strings::FEISHU_HOLD_OK_TALK : Lang::Strings::STANDBY);
+            display->SetStatus(app.IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
+            display->SetEmotion("neutral");
+        }
+    }
 
     void StartRecordTimer() {
         if (!record_timer_) {
@@ -49,6 +132,7 @@ private:
                     if (!self->is_push_to_talk_active_) {
                         return;
                     }
+                    self->wave_frame_++;
                     int elapsed_sec = (int)((esp_timer_get_time() - self->record_start_time_) / 1000000);
                     Application::GetInstance().Schedule([self, elapsed_sec]() {
                         if (!self->is_push_to_talk_active_) {
@@ -60,17 +144,26 @@ private:
                         }
                         auto display = self->GetDisplay();
                         if (display) {
+                            static const char* kWaveBars[] = {
+                                " ▂▃▅▆▇▆▅▃▂ ",
+                                "▃▅▆▇█▇▆▅▃▂ ",
+                                "▆▇█▇▆▅▃▂ ▂▃",
+                                "█▇▆▅▃▂ ▂▃▅▆",
+                                "▆▅▃▂ ▂▃▅▆▇█",
+                                "▃▂ ▂▃▅▆▇█▇▆",
+                            };
+                            const char* wave = kWaveBars[self->wave_frame_ % 6];
+
                             char status_buf[64];
-                            snprintf(status_buf, sizeof(status_buf), "🎙️ %s %02d:%02d [%s]",
-                                     Lang::Strings::FEISHU_RECORDING, elapsed_sec / 60, elapsed_sec % 60,
-                                     Lang::Strings::FEISHU_RELEASE_SEND);
+                            snprintf(status_buf, sizeof(status_buf), "🎙️ %02d:%02d [%s]",
+                                     elapsed_sec / 60, elapsed_sec % 60, wave);
                             display->SetStatus(status_buf);
                             display->SetEmotion("listening");
 
-                            char tip_buf[64];
-                            snprintf(tip_buf, sizeof(tip_buf), "🎙️ %s: %d 秒\n%s",
-                                     Lang::Strings::FEISHU_RECORDING, elapsed_sec, Lang::Strings::FEISHU_RELEASE_SEND);
-                            display->ShowNotification(tip_buf, 1500);
+                            char tip_buf[96];
+                            snprintf(tip_buf, sizeof(tip_buf), "🎙️ 正在录音 (%d秒)\n%s\n松开按键发送",
+                                     elapsed_sec, wave);
+                            display->ShowNotification(tip_buf, 900);
                         }
                     });
                 },
@@ -80,7 +173,7 @@ private:
             };
             esp_timer_create(&timer_args, &record_timer_);
         }
-        esp_timer_start_periodic(record_timer_, 1000000);
+        esp_timer_start_periodic(record_timer_, 500000);
     }
 
     void StopRecordTimer() {
@@ -158,7 +251,18 @@ private:
             volume = 0;
         }
         codec->SetOutputVolume(volume);
-        GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
+
+        // 可视化音量胶囊 HUD 进度槽
+        int filled = (volume + 5) / 10;
+        if (filled > 10) filled = 10;
+        std::string hud = "🔊 音量: " + std::to_string(volume) + "%\n[";
+        for (int i = 0; i < 10; i++) {
+            hud += (i < filled) ? "■" : "·";
+        }
+        hud += "]";
+        if (GetDisplay()) {
+            GetDisplay()->ShowNotification(hud.c_str(), 1600);
+        }
     }
 
     void ToggleChat() {
@@ -168,6 +272,20 @@ private:
             return;
         }
         app.ToggleChatState();
+    }
+
+    void TouchActivity(const char* btn_name = nullptr) {
+        last_activity_time_ = esp_timer_get_time();
+        if (current_brightness_ < 100) {
+            current_brightness_ = 100;
+            GetBacklight()->SetBrightness(100);
+        }
+        if (is_in_standby_clock_) {
+            ExitStandbyClock();
+        }
+        if (btn_name) {
+            ESP_LOGD(TAG, "TouchActivity triggered by button: %s", btn_name);
+        }
     }
 
     void InitializeButtons() {
@@ -203,10 +321,23 @@ private:
         adc_cfg.max = BSP_ADC_BUTTON_OK_MAX;
         adc_button_[kAdcButtonOk] = new AdcButton(adc_cfg, 600);
 
-        // 按钮事件与飞书硬件协同控制台深度绑定
+        // 按钮事件绑定与交互优化
         auto up = adc_button_[kAdcButtonUp];
         up->OnClick([this]() {
-            TouchActivity();
+            TouchActivity("UP");
+            Application::GetInstance().Schedule([this]() {
+                if (CheckAndAbortSpeaking()) {
+                    return;
+                }
+                ChangeVolume(+10);
+                auto& app = Application::GetInstance();
+                if (app.IsFeishuConnected()) {
+                    app.SendFeishuButtonEvent("up", "short_press");
+                }
+            });
+        });
+        up->OnDoubleClick([this]() {
+            TouchActivity("UP_DOUBLE");
             Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
                 if (!app.IsFeishuConnected()) {
@@ -214,13 +345,13 @@ private:
                     GetDisplay()->SetStatus(Lang::Strings::FEISHU_SEARCHING);
                     app.TriggerFeishuDiscovery();
                 } else {
-                    GetDisplay()->ShowNotification("🔄 刷新看板数据中...", 2000);
-                    app.SendFeishuButtonEvent("up", "short_press");
+                    GetDisplay()->ShowNotification("🔄 刷新看板与控制台数据...", 2000);
+                    app.SendFeishuButtonEvent("up", "double_click");
                 }
             });
         });
         up->OnLongPress([this]() {
-            TouchActivity();
+            TouchActivity("UP_LONG");
             Application::GetInstance().Schedule([this]() {
                 GetDisplay()->ShowNotification("📶 进入热点配网模式...", 3000);
                 EnterWifiConfigMode();
@@ -229,7 +360,20 @@ private:
 
         auto down = adc_button_[kAdcButtonDown];
         down->OnClick([this]() {
-            TouchActivity();
+            TouchActivity("DOWN");
+            Application::GetInstance().Schedule([this]() {
+                if (CheckAndAbortSpeaking()) {
+                    return;
+                }
+                ChangeVolume(-10);
+                auto& app = Application::GetInstance();
+                if (app.IsFeishuConnected()) {
+                    app.SendFeishuButtonEvent("down", "short_press");
+                }
+            });
+        });
+        down->OnDoubleClick([this]() {
+            TouchActivity("DOWN_DOUBLE");
             Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
                 auto& wifi = WifiManager::GetInstance();
@@ -240,18 +384,28 @@ private:
                 bool connected = app.IsFeishuConnected();
                 std::string gw = app.GetFeishuGatewayIp();
 
-                std::string info = "本机IP: " + ip;
-                if (connected) {
-                    info += "\n控制台: 已连接 (" + gw + ")";
-                } else {
-                    info += "\n控制台: 未连接 [按上键搜索]";
+                int battery_level = -1;
+                int battery_mv = -1;
+                if (battery_ && battery_->IsPresent()) {
+                    battery_level = battery_->GetBatteryLevel();
+                    battery_mv = battery_->GetBatteryVoltageMv();
                 }
-                GetDisplay()->ShowNotification(info.c_str(), 4000);
-                app.SendFeishuButtonEvent("down", "short_press");
+
+                std::string info = "📶 本机IP: " + ip;
+                if (connected) {
+                    info += "\n🟢 控制台: 已连接 (" + gw + ")";
+                } else {
+                    info += "\n⚪ 控制台: 未连接 [双击上键搜索]";
+                }
+                if (battery_level >= 0) {
+                    info += "\n🔋 电量: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
+                }
+                GetDisplay()->ShowNotification(info.c_str(), 4500);
+                app.SendFeishuButtonEvent("down", "double_click");
             });
         });
         down->OnLongPress([this]() {
-            TouchActivity();
+            TouchActivity("DOWN_LONG");
             Application::GetInstance().Schedule([]() {
                 ESP_LOGW(TAG, "Physical Emergency Stop Triggered!");
                 Application::GetInstance().SendFeishuButtonEvent("down", "long_press");
@@ -261,11 +415,14 @@ private:
 
         auto ok = adc_button_[kAdcButtonOk];
         ok->OnClick([this]() {
-            TouchActivity();
+            TouchActivity("OK");
             if (is_push_to_talk_active_) {
                 return;
             }
             Application::GetInstance().Schedule([this]() {
+                if (CheckAndAbortSpeaking()) {
+                    return;
+                }
                 auto& app = Application::GetInstance();
                 if (app.HasPendingFeishuGateway()) {
                     app.ConnectSelectedFeishuGateway();
@@ -275,13 +432,14 @@ private:
             });
         });
         ok->OnLongPress([this]() {
-            TouchActivity();
+            TouchActivity("OK_LONG");
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateSpeaking) {
                 app.AbortSpeaking(kAbortReasonNone);
                 app.GetAudioService().ResetDecoder();
             }
             is_push_to_talk_active_ = true;
+            wave_frame_ = 0;
             record_start_time_ = esp_timer_get_time();
 
             Application::GetInstance().Schedule([this]() {
@@ -289,21 +447,17 @@ private:
                 app.StartListening();
                 if (GetDisplay()) {
                     char initial_buf[64];
-                    snprintf(initial_buf, sizeof(initial_buf), "🎙️ %s 00:00 [%s]",
-                             Lang::Strings::FEISHU_RECORDING, Lang::Strings::FEISHU_RELEASE_SEND);
+                    snprintf(initial_buf, sizeof(initial_buf), "🎙️ 00:00 [ ▂▃▅▆▇▆▅▃▂ ]");
                     GetDisplay()->SetStatus(initial_buf);
                     GetDisplay()->SetEmotion("listening");
 
-                    char tip_buf[64];
-                    snprintf(tip_buf, sizeof(tip_buf), "🎙️ %s: 0 秒\n%s",
-                             Lang::Strings::FEISHU_RECORDING, Lang::Strings::FEISHU_RELEASE_SEND);
-                    GetDisplay()->ShowNotification(tip_buf, 1500);
+                    GetDisplay()->ShowNotification("🎙️ 按住说话...\n[ ▂▃▅▆▇▆▅▃▂ ]\n松开按键发送", 1200);
                 }
                 StartRecordTimer();
             });
         });
         ok->OnPressUp([this]() {
-            TouchActivity();
+            TouchActivity("OK_UP");
             if (is_push_to_talk_active_) {
                 int duration_sec = (int)((esp_timer_get_time() - record_start_time_) / 1000000);
                 Application::GetInstance().Schedule([this, duration_sec]() {
@@ -311,14 +465,6 @@ private:
                 });
             }
         });
-    }
-
-    void TouchActivity() {
-        last_activity_time_ = esp_timer_get_time();
-        if (current_brightness_ < 100) {
-            current_brightness_ = 100;
-            GetBacklight()->SetBrightness(100);
-        }
     }
 
     void InitializeSpi() {
@@ -411,9 +557,18 @@ public:
             .callback = [](void* arg) {
                 auto self = static_cast<AiPassportBoard*>(arg);
                 int64_t now = esp_timer_get_time();
-                if (now - self->last_activity_time_ >= 30 * 1000000LL) {
-                    auto state = Application::GetInstance().GetDeviceState();
-                    if (state != kDeviceStateListening && state != kDeviceStateSpeaking) {
+                auto state = Application::GetInstance().GetDeviceState();
+
+                // 超过 15 秒无操作且处于待命状态，自动进入/刷新随身时钟看板
+                if (now - self->last_activity_time_ >= 15 * 1000000LL &&
+                    (state == kDeviceStateIdle || state == kDeviceStateStarting) &&
+                    !self->is_push_to_talk_active_) {
+                    Application::GetInstance().Schedule([self]() {
+                        self->EnterOrRefreshStandbyClock();
+                    });
+
+                    // 超过 30 秒无操作，降低屏幕亮度至 20% 省电休眠
+                    if (now - self->last_activity_time_ >= 30 * 1000000LL) {
                         if (self->current_brightness_ > 20) {
                             self->current_brightness_ = 20;
                             self->GetBacklight()->SetBrightness(20);
