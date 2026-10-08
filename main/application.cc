@@ -539,7 +539,11 @@ void Application::InitializeProtocol() {
     display->SetStatus(Lang::Strings::FEISHU_SEARCHING);
 
     ESP_LOGI(TAG, "Initializing Feishu Bot Hardware Console Protocol");
-    protocol_ = std::make_unique<FeishuProtocol>();
+    auto feishu = std::make_unique<FeishuProtocol>();
+    if (on_feishu_gateways_changed_) {
+        feishu->SetOnGatewaysChanged(on_feishu_gateways_changed_);
+    }
+    protocol_ = std::move(feishu);
 
     protocol_->OnConnected([this]() {
         DismissAlert();
@@ -1462,9 +1466,10 @@ void Application::ConnectFeishuGateway(const std::string& ip, int port) {
 }
 
 void Application::SetOnFeishuGatewaysChanged(std::function<void(const std::vector<FeishuGateway>&)> cb) {
+    on_feishu_gateways_changed_ = std::move(cb);
     if (protocol_) {
         auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
-        feishu->SetOnGatewaysChanged(std::move(cb));
+        feishu->SetOnGatewaysChanged(on_feishu_gateways_changed_);
     }
 }
 

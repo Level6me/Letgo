@@ -159,6 +159,7 @@ private:
     std::unique_ptr<Ota> ota_;
 
     std::function<void(const std::string&)> mcp_broadcast_callback_;
+    std::function<void(const std::vector<FeishuGateway>&)> on_feishu_gateways_changed_;
 
     bool has_server_time_ = false;
     bool aborted_ = false;
