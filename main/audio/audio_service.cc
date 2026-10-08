@@ -361,6 +361,20 @@ void AudioService::AudioOutputTask() {
             callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
         }
 
+        // 计算即时输出 RMS 能量值（供 UI 频谱波浪动效实时显示）
+        if (!task.pcm.empty()) {
+            uint64_t sum_squares = 0;
+            size_t n = task.pcm.size();
+            for (size_t i = 0; i < n; i++) {
+                int32_t sample = task.pcm[i];
+                sum_squares += (uint64_t)(sample * sample);
+            }
+            uint16_t rms = static_cast<uint16_t>(sqrt(sum_squares / n));
+            output_energy_rms_.store(rms, std::memory_order_relaxed);
+        } else {
+            output_energy_rms_.store(0, std::memory_order_relaxed);
+        }
+
         codec_->OutputData(task.pcm);
 
         /* Update the last output time */
@@ -841,6 +855,7 @@ bool AudioService::IsPlaybackIdle() {
 }
 
 void AudioService::ResetDecoder() {
+    output_energy_rms_.store(0, std::memory_order_relaxed);
     bool notify_drained = false;
     {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
@@ -871,6 +886,7 @@ bool AudioService::MarkPlaybackDrainedLocked() {
     if (!IsPlaybackDrainedLocked() || playback_drained_notified_) {
         return false;
     }
+    output_energy_rms_.store(0, std::memory_order_relaxed);
     playback_drained_notified_ = true;
     return true;
 }

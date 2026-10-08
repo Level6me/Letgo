@@ -18,7 +18,10 @@
 #include <driver/spi_common.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <material_symbols.h>
 #include <time.h>
+#include <cmath>
+#include <atomic>
 
 #define TAG "AiPassport"
 
@@ -35,20 +38,92 @@ enum {
  *
  * 核心规范：
  * 1. 屏幕正中间平时只有一根纯白水平直线 (140px宽, 2px高)；
- * 2. 录音时变成随声音能量流动的正弦波浪线；
- * 3. 彻底移除一切彩色 Emoji、彩色状态点、彩色气泡，全界面纯黑白单色设计。
+ * 2. 录音和播放器播放时变成随真实声音能量流动的纯白动态频谱波浪 (LVGL原生绘制，零字体依赖)；
+ * 3. 彻底移除一切彩色 Emoji、彩色状态点、彩色气泡，全界面纯黑白单色设计；
+ * 4. 音量调节在屏幕底部显示居中胶囊 HUD (喇叭图标 + 百分比)。
  */
 class AiPassportDisplay : public SpiLcdDisplay {
 private:
     lv_obj_t* center_line_obj_ = nullptr;
-    lv_obj_t* center_wave_label_ = nullptr;
-    bool is_recording_wave_ = false;
+    lv_obj_t* wave_container_ = nullptr;
+    static constexpr int kWaveBarsCount = 15;
+    lv_obj_t* wave_bars_[kWaveBarsCount] = {nullptr};
+
+    // 屏幕底部音量胶囊 HUD
+    lv_obj_t* bottom_volume_box_ = nullptr;
+    lv_obj_t* volume_icon_label_ = nullptr;
+    lv_obj_t* volume_text_label_ = nullptr;
+    esp_timer_handle_t volume_hide_timer_ = nullptr;
+
+    // 律动动画与状态
+    lv_timer_t* wave_timer_ = nullptr;
+    uint32_t wave_frame_ = 0;
+    bool was_active_wave_ = false;
+    std::atomic<bool> is_recording_ptt_{false};
+
+    void RenderIdleLine() {
+        if (wave_container_) {
+            lv_obj_add_flag(wave_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (center_line_obj_) {
+            lv_obj_remove_flag(center_line_obj_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    void RenderWaveBars(uint16_t energy_rms, uint32_t frame) {
+        if (center_line_obj_) {
+            lv_obj_add_flag(center_line_obj_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (wave_container_) {
+            lv_obj_remove_flag(wave_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // 计算声音能量活跃度因子 (0.0 ~ 1.0)
+        float factor = 0.0f;
+        if (energy_rms > 100) {
+            factor = (float)(energy_rms - 100) / 2500.0f;
+            if (factor > 1.0f) factor = 1.0f;
+        }
+        // 录音或播放中若暂无明显声响，保持基础 15% 呼吸微波，提示处于工作收听/播放状态
+        float eff_factor = (factor < 0.15f) ? 0.15f : factor;
+        float phase = (float)frame * 0.35f;
+
+        for (int i = 0; i < kWaveBarsCount; i++) {
+            float d = fabsf((float)i - 7.0f) / 7.0f;
+            float window = cosf(d * 1.25f);
+            if (window < 0.2f) window = 0.2f;
+
+            float wave1 = sinf(phase + (float)i * 0.75f);
+            float wave2 = cosf(phase * 1.4f - (float)i * 0.5f);
+            float m = 0.5f + 0.35f * wave1 + 0.15f * wave2;
+
+            int h = 3 + (int)(eff_factor * window * m * 28.0f);
+            if (h < 3) h = 3;
+            if (h > 32) h = 32;
+
+            if (wave_bars_[i]) {
+                lv_obj_set_height(wave_bars_[i], h);
+            }
+        }
+    }
 
 public:
     AiPassportDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
                       int width, int height, int offset_x, int offset_y,
                       bool mirror_x, bool mirror_y, bool swap_xy)
         : SpiLcdDisplay(panel_io, panel, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy) {}
+
+    virtual ~AiPassportDisplay() {
+        if (volume_hide_timer_) {
+            esp_timer_stop(volume_hide_timer_);
+            esp_timer_delete(volume_hide_timer_);
+            volume_hide_timer_ = nullptr;
+        }
+        if (wave_timer_) {
+            lv_timer_delete(wave_timer_);
+            wave_timer_ = nullptr;
+        }
+    }
 
     virtual void SetupUI() override {
         SpiLcdDisplay::SetupUI();
@@ -89,22 +164,159 @@ public:
         lv_obj_set_scrollbar_mode(center_line_obj_, LV_SCROLLBAR_MODE_OFF);
         lv_obj_align(center_line_obj_, LV_ALIGN_CENTER, 0, 0);
 
-        // 4. 屏幕正中间录音时动态波浪线文本组件
-        center_wave_label_ = lv_label_create(screen);
-        lv_obj_set_style_text_color(center_wave_label_, lv_color_hex(0xFFFFFF), 0);
-        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
-        if (lvgl_theme && lvgl_theme->text_font()) {
-            lv_obj_set_style_text_font(center_wave_label_, lvgl_theme->text_font()->font(), 0);
-        }
-        lv_obj_set_style_text_align(center_wave_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(center_wave_label_, "");
-        lv_obj_align(center_wave_label_, LV_ALIGN_CENTER, 0, 0);
-        lv_obj_add_flag(center_wave_label_, LV_OBJ_FLAG_HIDDEN);
+        // 4. 屏幕正中间动态波浪条容器 (录音与播放时动态显示，摆脱字体依赖，100% 纯白像素呈现)
+        wave_container_ = lv_obj_create(screen);
+        lv_obj_set_size(wave_container_, 140, 40);
+        lv_obj_set_style_bg_opa(wave_container_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(wave_container_, 0, 0);
+        lv_obj_set_style_pad_all(wave_container_, 0, 0);
+        lv_obj_set_scrollbar_mode(wave_container_, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_set_flex_flow(wave_container_, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(wave_container_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_align(wave_container_, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_add_flag(wave_container_, LV_OBJ_FLAG_HIDDEN);
 
-        // 5. 确保底部栏默认隐藏，保持纯粹极简
+        for (int i = 0; i < kWaveBarsCount; i++) {
+            wave_bars_[i] = lv_obj_create(wave_container_);
+            lv_obj_set_size(wave_bars_[i], 6, 2);
+            lv_obj_set_style_bg_color(wave_bars_[i], lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_bg_opa(wave_bars_[i], LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(wave_bars_[i], 0, 0);
+            lv_obj_set_style_radius(wave_bars_[i], 2, 0);
+            lv_obj_set_style_pad_all(wave_bars_[i], 0, 0);
+            if (i > 0) {
+                lv_obj_set_style_margin_left(wave_bars_[i], 3, 0);
+            }
+        }
+
+        // 5. 屏幕底部音量胶囊 HUD (黑底白边，内含喇叭图标与音量百分比)
+        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+        const lv_font_t* text_font = lvgl_theme && lvgl_theme->text_font() ? lvgl_theme->text_font()->font() : nullptr;
+        const lv_font_t* icon_font = lvgl_theme && lvgl_theme->icon_font() ? lvgl_theme->icon_font()->font() : nullptr;
+
+        bottom_volume_box_ = lv_obj_create(screen);
+        lv_obj_set_size(bottom_volume_box_, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_set_style_bg_color(bottom_volume_box_, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(bottom_volume_box_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(bottom_volume_box_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_border_width(bottom_volume_box_, 1, 0);
+        lv_obj_set_style_radius(bottom_volume_box_, 14, 0);
+        lv_obj_set_style_pad_top(bottom_volume_box_, 4, 0);
+        lv_obj_set_style_pad_bottom(bottom_volume_box_, 4, 0);
+        lv_obj_set_style_pad_left(bottom_volume_box_, 12, 0);
+        lv_obj_set_style_pad_right(bottom_volume_box_, 12, 0);
+        lv_obj_set_flex_flow(bottom_volume_box_, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(bottom_volume_box_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(bottom_volume_box_, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_align(bottom_volume_box_, LV_ALIGN_BOTTOM_MID, 0, -16);
+        lv_obj_add_flag(bottom_volume_box_, LV_OBJ_FLAG_HIDDEN);
+
+        volume_icon_label_ = lv_label_create(bottom_volume_box_);
+        if (icon_font) {
+            lv_obj_set_style_text_font(volume_icon_label_, icon_font, 0);
+        }
+        lv_obj_set_style_text_color(volume_icon_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_label_set_text(volume_icon_label_, MATERIAL_SYMBOLS_VOLUME_UP);
+
+        volume_text_label_ = lv_label_create(bottom_volume_box_);
+        if (text_font) {
+            lv_obj_set_style_text_font(volume_text_label_, text_font, 0);
+        }
+        lv_obj_set_style_text_color(volume_text_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_margin_left(volume_text_label_, 6, 0);
+        lv_label_set_text(volume_text_label_, "100%");
+
+        // 6. 音量 HUD 自动隐藏定时器 (1.5秒后自动隐退)
+        if (!volume_hide_timer_) {
+            esp_timer_create_args_t vol_timer_args = {
+                .callback = [](void* arg) {
+                    auto self = static_cast<AiPassportDisplay*>(arg);
+                    DisplayLockGuard lock(self);
+                    if (self->bottom_volume_box_) {
+                        lv_obj_add_flag(self->bottom_volume_box_, LV_OBJ_FLAG_HIDDEN);
+                    }
+                },
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "vol_hide_timer",
+                .skip_unhandled_events = true
+            };
+            esp_timer_create(&vol_timer_args, &volume_hide_timer_);
+        }
+
+        // 7. 动态波浪线 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
+        if (!wave_timer_) {
+            wave_timer_ = lv_timer_create([](lv_timer_t* timer) {
+                auto self = static_cast<AiPassportDisplay*>(lv_timer_get_user_data(timer));
+                self->OnWaveTimerTick();
+            }, 50, this);
+        }
+
+        // 8. 确保底部栏默认隐藏，保持纯粹极简
         if (bottom_bar_) {
             lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
         }
+    }
+
+    void OnWaveTimerTick() {
+        auto& app = Application::GetInstance();
+        auto state = app.GetDeviceState();
+        auto& audio_service = app.GetAudioService();
+
+        bool is_recording = is_recording_ptt_.load(std::memory_order_relaxed) ||
+                            (state == kDeviceStateListening);
+        bool is_playing = (state == kDeviceStateSpeaking) || (!audio_service.IsPlaybackIdle());
+
+        if (is_recording) {
+            wave_frame_++;
+            uint16_t rms = audio_service.GetInputEnergyRms();
+            RenderWaveBars(rms, wave_frame_);
+            was_active_wave_ = true;
+        } else if (is_playing) {
+            wave_frame_++;
+            uint16_t rms = audio_service.GetOutputEnergyRms();
+            RenderWaveBars(rms, wave_frame_);
+            was_active_wave_ = true;
+        } else {
+            if (was_active_wave_) {
+                was_active_wave_ = false;
+                RenderIdleLine();
+            }
+        }
+    }
+
+    void ShowVolumeBottom(int volume) {
+        DisplayLockGuard lock(this);
+        if (!bottom_volume_box_) return;
+
+        if (volume <= 0) {
+            lv_label_set_text(volume_icon_label_, MATERIAL_SYMBOLS_VOLUME_MUTE);
+        } else if (volume < 50) {
+            lv_label_set_text(volume_icon_label_, MATERIAL_SYMBOLS_VOLUME_DOWN);
+        } else {
+            lv_label_set_text(volume_icon_label_, MATERIAL_SYMBOLS_VOLUME_UP);
+        }
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d%%", volume);
+        lv_label_set_text(volume_text_label_, buf);
+
+        lv_obj_remove_flag(bottom_volume_box_, LV_OBJ_FLAG_HIDDEN);
+
+        if (volume_hide_timer_) {
+            esp_timer_stop(volume_hide_timer_);
+            esp_timer_start_once(volume_hide_timer_, 1500000);
+        }
+    }
+
+    void SetRecording(bool recording) {
+        is_recording_ptt_.store(recording, std::memory_order_relaxed);
+    }
+
+    void ShowIdleStraightLine() {
+        DisplayLockGuard lock(this);
+        was_active_wave_ = false;
+        RenderIdleLine();
     }
 
     virtual void SetEmotion(const char* emotion) override {
@@ -113,7 +325,6 @@ public:
 
     virtual void SetChatMessage(const char* role, const char* content) override {
         if (strcmp(role, "system") == 0) {
-            // 系统状态提示不占用屏幕中心或底部，保持极简
             ClearChatMessages();
             return;
         }
@@ -134,33 +345,6 @@ public:
             lvgl_theme->set_low_battery_color(lv_color_hex(0xFFFFFF));
         }
         SpiLcdDisplay::SetTheme(theme);
-    }
-
-    void ShowIdleStraightLine() {
-        DisplayLockGuard lock(this);
-        is_recording_wave_ = false;
-        if (center_line_obj_) {
-            lv_obj_remove_flag(center_line_obj_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (center_wave_label_) {
-            lv_obj_add_flag(center_wave_label_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (emoji_label_) {
-            lv_obj_add_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-
-    void UpdateRecordingWave(const char* wave_text) {
-        DisplayLockGuard lock(this);
-        is_recording_wave_ = true;
-        if (center_line_obj_) {
-            lv_obj_add_flag(center_line_obj_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (center_wave_label_) {
-            lv_label_set_text(center_wave_label_, wave_text);
-            lv_obj_remove_flag(center_wave_label_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_align(center_wave_label_, LV_ALIGN_CENTER, 0, 0);
-        }
     }
 };
 
@@ -251,97 +435,22 @@ private:
                     if (!self->is_push_to_talk_active_) {
                         return;
                     }
-                    self->wave_frame_++;
-
-                    // 状态栏与正弦波浪线每 5 帧(~250ms)刷新一次，极致平滑
-                    if (self->wave_frame_ % 5 == 0) {
-                        int elapsed_sec = (int)((esp_timer_get_time() - self->record_start_time_) / 1000000);
-                        // 获取当前采样周期的真实 RMS 声压能量
-                        uint16_t rms = Application::GetInstance().GetAudioService().GetInputEnergyRms();
-
-                        Application::GetInstance().Schedule([self, elapsed_sec, rms]() {
-                            if (!self->is_push_to_talk_active_) {
-                                return;
-                            }
-                            if (elapsed_sec >= 60) {
-                                self->StopPushToTalk(elapsed_sec);
-                                return;
-                            }
-                            if (self->display_) {
-                                // 根据真实声压 RMS 动态切换正弦波浪振幅
-                                int energy_level = 0;
-                                if (rms > 6000) energy_level = 6;
-                                else if (rms > 4000) energy_level = 5;
-                                else if (rms > 2500) energy_level = 4;
-                                else if (rms > 1200) energy_level = 3;
-                                else if (rms > 500)  energy_level = 2;
-                                else if (rms > 150)  energy_level = 1;
-
-                                static const char* kSineWaves[4][8] = {
-                                    // 1. 微弱语声/平缓流动正弦波
-                                    {
-                                        "∿∿∿∽∽∽∿∿∿∽∽∽",
-                                        "∽∿∿∿∽∽∽∿∿∿∽∽",
-                                        "∽∽∿∿∿∽∽∽∿∿∿∽",
-                                        "∽∽∽∿∿∿∽∽∽∿∿∿",
-                                        "∿∽∽∽∿∿∿∽∽∽∿∿",
-                                        "∿∿∽∽∽∿∿∿∽∽∽∿",
-                                        "∿∿∿∽∽∽∿∿∿∽∽∽",
-                                        "∽∿∿∿∽∽∽∿∿∿∽∽"
-                                    },
-                                    // 2. 正常语声起伏波浪
-                                    {
-                                        "  ▂▃▅▆▇▆▅▃▂   ▂▃▅▆▇▆▅▃▂  ",
-                                        " ▂▃▅▆▇█▇▆▅▃▂ ▂▃▅▆▇█▇▆▅▃▂ ",
-                                        "▂▃▅▆▇███▇▆▅▃▂▃▅▆▇███▇▆▅▃",
-                                        "▃▅▆▇█████▇▆▅▃▅▆▇█████▇▆▅",
-                                        "▂▃▅▆▇███▇▆▅▃▂▃▅▆▇███▇▆▅▃",
-                                        " ▂▃▅▆▇█▇▆▅▃▂ ▂▃▅▆▇█▇▆▅▃▂ ",
-                                        "  ▂▃▅▆▇▆▅▃▂   ▂▃▅▆▇▆▅▃▂  ",
-                                        "   ▂▃▅▃▂        ▂▃▅▃▂   "
-                                    },
-                                    // 3. 饱满高动态波浪
-                                    {
-                                        "▃▅▆▇█████▇▆▅▃▅▆▇█████▇▆▅",
-                                        "▅▆▇███████▇▆▅▆▇███████▇▆",
-                                        "▆▇█████████▇▆▇█████████▇",
-                                        "▇███████████▇███████████",
-                                        "▆▇█████████▇▆▇█████████▇",
-                                        "▅▆▇███████▇▆▅▆▇███████▇▆",
-                                        "▃▅▆▇█████▇▆▅▃▅▆▇█████▇▆▅",
-                                        "▂▃▅▆▇███▇▆▅▃▂▃▅▆▇███▇▆▅▃"
-                                    },
-                                    // 4. 极致澎湃浪潮
-                                    {
-                                        "████████████████████████",
-                                        "▇██████████████████████▇",
-                                        "▆▇████████████████████▇▆",
-                                        "▅▆▇██████████████████▇▆▅",
-                                        "▆▇████████████████████▇▆",
-                                        "▇██████████████████████▇",
-                                        "████████████████████████",
-                                        "▇██████████████████████▇"
-                                    }
-                                };
-
-                                int wave_band = 0;
-                                if (energy_level >= 5) wave_band = 2;
-                                else if (energy_level >= 3) wave_band = 1;
-                                else if (energy_level >= 1) wave_band = 0;
-
-                                const char* center_sine = kSineWaves[wave_band][self->wave_frame_ % 8];
-
-                                // 顶部状态栏：纯白文本
-                                char status_buf[48];
-                                snprintf(status_buf, sizeof(status_buf), "[录音中 %02d:%02d]",
-                                         elapsed_sec / 60, elapsed_sec % 60);
-                                self->display_->SetStatus(status_buf);
-
-                                // 屏幕正中央：随声音流动的波浪线
-                                self->display_->UpdateRecordingWave(center_sine);
-                            }
-                        });
-                    }
+                    int elapsed_sec = (int)((esp_timer_get_time() - self->record_start_time_) / 1000000);
+                    Application::GetInstance().Schedule([self, elapsed_sec]() {
+                        if (!self->is_push_to_talk_active_) {
+                            return;
+                        }
+                        if (elapsed_sec >= 60) {
+                            self->StopPushToTalk(elapsed_sec);
+                            return;
+                        }
+                        if (self->display_) {
+                            char status_buf[48];
+                            snprintf(status_buf, sizeof(status_buf), "[录音中 %02d:%02d]",
+                                     elapsed_sec / 60, elapsed_sec % 60);
+                            self->display_->SetStatus(status_buf);
+                        }
+                    });
                 },
                 .arg = this,
                 .dispatch_method = ESP_TIMER_TASK,
@@ -349,8 +458,8 @@ private:
             };
             esp_timer_create(&timer_args, &record_timer_);
         }
-        // 50ms 周期（20Hz 刷新率）
-        esp_timer_start_periodic(record_timer_, 50000);
+        // 500ms 周期更新状态栏时间
+        esp_timer_start_periodic(record_timer_, 500000);
     }
 
     void StopRecordTimer() {
@@ -368,8 +477,9 @@ private:
 
         auto& app = Application::GetInstance();
 
-        // 录音结束，立即平滑恢复屏幕正中心水平直线
+        // 录音结束，立即恢复屏幕正中心水平直线
         if (display_) {
+            display_->SetRecording(false);
             display_->ShowIdleStraightLine();
         }
 
@@ -428,16 +538,8 @@ private:
         }
         codec->SetOutputVolume(volume);
 
-        // 可视化音量 HUD 进度槽 (纯黑白极简无 emoji)
-        int filled = (volume + 5) / 10;
-        if (filled > 10) filled = 10;
-        std::string hud = "音量: " + std::to_string(volume) + "%\n[";
-        for (int i = 0; i < 10; i++) {
-            hud += (i < filled) ? "■" : "·";
-        }
-        hud += "]";
         if (display_) {
-            display_->ShowNotification(hud.c_str(), 1600);
+            display_->ShowVolumeBottom(volume);
         }
     }
 
@@ -458,9 +560,6 @@ private:
         }
         if (is_in_standby_clock_) {
             ExitStandbyClock();
-        }
-        if (display_ && !is_push_to_talk_active_) {
-            display_->ShowIdleStraightLine();
         }
         if (btn_name) {
             ESP_LOGD(TAG, "TouchActivity triggered by button: %s", btn_name);
@@ -640,13 +739,15 @@ private:
             is_push_to_talk_active_ = true;
             wave_frame_ = 0;
             record_start_time_ = esp_timer_get_time();
+            if (display_) {
+                display_->SetRecording(true);
+            }
 
             Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
                 app.StartListening();
                 if (display_) {
                     display_->SetStatus("[录音中 00:00]");
-                    display_->UpdateRecordingWave("∿∿∿∽∽∽∿∿∿∽∽∽");
                 }
                 StartRecordTimer();
             });
