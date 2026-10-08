@@ -133,39 +133,44 @@ private:
                         return;
                     }
                     self->wave_frame_++;
-                    int elapsed_sec = (int)((esp_timer_get_time() - self->record_start_time_) / 1000000);
-                    Application::GetInstance().Schedule([self, elapsed_sec]() {
-                        if (!self->is_push_to_talk_active_) {
-                            return;
-                        }
-                        if (elapsed_sec >= 60) {
-                            self->StopPushToTalk(elapsed_sec);
-                            return;
-                        }
-                        auto display = self->GetDisplay();
-                        if (display) {
-                            static const char* kWaveBars[] = {
-                                " ▂▃▅▆▇▆▅▃▂ ",
-                                "▃▅▆▇█▇▆▅▃▂ ",
-                                "▆▇█▇▆▅▃▂ ▂▃",
-                                "█▇▆▅▃▂ ▂▃▅▆",
-                                "▆▅▃▂ ▂▃▅▆▇█",
-                                "▃▂ ▂▃▅▆▇█▇▆",
-                            };
-                            const char* wave = kWaveBars[self->wave_frame_ % 6];
 
-                            char status_buf[64];
-                            snprintf(status_buf, sizeof(status_buf), "🎙️ %02d:%02d [%s]",
-                                     elapsed_sec / 60, elapsed_sec % 60, wave);
-                            display->SetStatus(status_buf);
-                            display->SetEmotion("listening");
+                    // 状态栏每 5 帧(~250ms)刷新一次跳跃式波形字符，保证极致顺滑
+                    if (self->wave_frame_ % 5 == 0) {
+                        int elapsed_sec = (int)((esp_timer_get_time() - self->record_start_time_) / 1000000);
+                        Application::GetInstance().Schedule([self, elapsed_sec]() {
+                            if (!self->is_push_to_talk_active_) {
+                                return;
+                            }
+                            if (elapsed_sec >= 60) {
+                                self->StopPushToTalk(elapsed_sec);
+                                return;
+                            }
+                            auto display = self->GetDisplay();
+                            if (display) {
+                                static const char* kWaveBars[] = {
+                                    " ▂▃▅▆▇▆▅▃▂ ",
+                                    "▂▃▅▆▇█▇▆▅▃ ",
+                                    "▃▅▆▇█▇▆▅▃▂ ",
+                                    "▅▆▇█▇▆▅▃▂  ",
+                                    "▆▇█▇▆▅▃▂ ▂▃",
+                                    "▇█▇▆▅▃▂ ▂▃▅",
+                                    "█▇▆▅▃▂ ▂▃▅▆",
+                                    "▇▆▅▃▂ ▂▃▅▆▇",
+                                    "▆▅▃▂ ▂▃▅▆▇█",
+                                    "▅▃▂ ▂▃▅▆▇█▇",
+                                    "▃▂ ▂▃▅▆▇█▇▆",
+                                    "▂ ▂▃▅▆▇█▇▆▅",
+                                };
+                                const char* wave = kWaveBars[self->wave_frame_ % 12];
 
-                            char tip_buf[96];
-                            snprintf(tip_buf, sizeof(tip_buf), "🎙️ 正在录音 (%d秒)\n%s\n松开按键发送",
-                                     elapsed_sec, wave);
-                            display->ShowNotification(tip_buf, 900);
-                        }
-                    });
+                                char status_buf[64];
+                                snprintf(status_buf, sizeof(status_buf), "🎙️ %02d:%02d [%s]",
+                                         elapsed_sec / 60, elapsed_sec % 60, wave);
+                                display->SetStatus(status_buf);
+                                display->SetEmotion("listening");
+                            }
+                        });
+                    }
                 },
                 .arg = this,
                 .dispatch_method = ESP_TIMER_TASK,
@@ -173,7 +178,8 @@ private:
             };
             esp_timer_create(&timer_args, &record_timer_);
         }
-        esp_timer_start_periodic(record_timer_, 500000);
+        // 50ms 周期（20Hz 刷新率），在 ESP32-S3 SPI 传输与 CPU 负荷之间取得最佳平衡
+        esp_timer_start_periodic(record_timer_, 50000);
     }
 
     void StopRecordTimer() {
