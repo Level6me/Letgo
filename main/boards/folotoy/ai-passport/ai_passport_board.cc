@@ -237,7 +237,7 @@ private:
         if (display) {
             char tip[80];
             snprintf(tip, sizeof(tip), "📤 录音完成 (%d秒)\n%s", duration_sec, Lang::Strings::FEISHU_SENDING);
-            display->ShowNotification(tip, 3500);
+            display->ShowNotification(tip, 1200);
             display->SetStatus(Lang::Strings::FEISHU_SENDING);
             display->SetEmotion("thinking");
         }
@@ -348,9 +348,7 @@ private:
         up->OnClick([this]() {
             TouchActivity("UP");
             Application::GetInstance().Schedule([this]() {
-                if (CheckAndAbortSpeaking()) {
-                    return;
-                }
+                // 音量键专心调节音量，不中断正在播报的语音
                 ChangeVolume(+10);
                 auto& app = Application::GetInstance();
                 if (app.IsFeishuConnected()) {
@@ -384,9 +382,7 @@ private:
         down->OnClick([this]() {
             TouchActivity("DOWN");
             Application::GetInstance().Schedule([this]() {
-                if (CheckAndAbortSpeaking()) {
-                    return;
-                }
+                // 音量键专心调节音量，不中断正在播报的语音
                 ChangeVolume(-10);
                 auto& app = Application::GetInstance();
                 if (app.IsFeishuConnected()) {
@@ -442,6 +438,7 @@ private:
                 return;
             }
             Application::GetInstance().Schedule([this]() {
+                // OK 键作为主功能键，专职执行打断播报
                 if (CheckAndAbortSpeaking()) {
                     return;
                 }
@@ -450,6 +447,21 @@ private:
                     app.ConnectSelectedFeishuGateway();
                 } else {
                     ToggleChat();
+                }
+            });
+        });
+        ok->OnDoubleClick([this]() {
+            TouchActivity("OK_DOUBLE");
+            Application::GetInstance().Schedule([this]() {
+                auto& app = Application::GetInstance();
+                if (CheckAndAbortSpeaking()) {
+                    return;
+                }
+                if (GetDisplay()) {
+                    GetDisplay()->ShowNotification("🔄 正在请求重播上一句...", 1500);
+                }
+                if (app.IsFeishuConnected()) {
+                    app.SendFeishuButtonEvent("ok", "double_click");
                 }
             });
         });
@@ -581,9 +593,16 @@ public:
                 int64_t now = esp_timer_get_time();
                 auto state = Application::GetInstance().GetDeviceState();
 
+                // 若设备处于非空闲态（正在聆听/思考/播报），自动退出时钟看板恢复会话显示
+                if (state != kDeviceStateIdle && state != kDeviceStateStarting) {
+                    if (self->is_in_standby_clock_) {
+                        self->TouchActivity();
+                    }
+                    return;
+                }
+
                 // 超过 15 秒无操作且处于待命状态，自动进入/刷新随身时钟看板
                 if (now - self->last_activity_time_ >= 15 * 1000000LL &&
-                    (state == kDeviceStateIdle || state == kDeviceStateStarting) &&
                     !self->is_push_to_talk_active_) {
                     Application::GetInstance().Schedule([self]() {
                         self->EnterOrRefreshStandbyClock();
