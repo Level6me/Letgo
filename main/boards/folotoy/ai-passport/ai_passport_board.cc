@@ -160,16 +160,53 @@ private:
                                 else if (rms > 500)  energy_level = 2;
                                 else if (rms > 150)  energy_level = 1;
 
-                                // 结合正弦流动帧与声压强度：音量大时波柱剧烈跳动，静音时保持流动呼吸
-                                static const char* kFluidWaves[4][6] = {
-                                    // 弱音流动 (level 0-2)
-                                    {" ▂▃ ▂ ", "▂▃ ▂ ", "▃ ▂ ▂", " ▂ ▂▃", "▂ ▂▃ ", " ▂▃ ▂ "},
-                                    // 中音流动 (level 3-4)
-                                    {" ▂▃▅▃▂ ", "▂▃▅▆▅▃", "▃▅▆▇▆▅", "▅▆▇▆▅▃", "▆▅▃▂ ▂", "▃▂ ▂▃▅"},
-                                    // 强音澎湃 (level 5-6)
-                                    {"▃▅▆▇██▇▆", "▅▆▇██▇▆▅", "▆▇██▇▆▅▃", "██▇▆▅▃▅▆", "▇▆▅▃▅▆▇█", "▆▅▃▅▆▇██"},
-                                    // 爆表重音 (level > 6)
-                                    {"██▇██▇██", "▇██▇██▇█", "██▇██▇██", "▇██▇██▇█", "██▇██▇██", "▇██▇██▇█"}
+                                // 拟态连续流动正弦波浪线（Siri / 音频能量光波）
+                                // 采用多点正弦拟合采样字符，随声压 RMS 动态伸缩波浪起伏振幅
+                                static const char* kSineWaves[4][8] = {
+                                    // 1. 微弱/待命波浪 (低振幅平缓流动)
+                                    {
+                                        "∿∿∿∽∽∽∿∿∿∽∽∽",
+                                        "∽∿∿∿∽∽∽∿∿∿∽∽",
+                                        "∽∽∿∿∿∽∽∽∿∿∿∽",
+                                        "∽∽∽∿∿∿∽∽∽∿∿∿",
+                                        "∿∽∽∽∿∿∿∽∽∽∿∿",
+                                        "∿∿∽∽∽∿∿∿∽∽∽∿",
+                                        "∿∿∿∽∽∽∿∿∿∽∽∽",
+                                        "∽∿∿∿∽∽∽∿∿∿∽∽"
+                                    },
+                                    // 2. 正常语声波浪 (中等振幅起伏波浪)
+                                    {
+                                        "  ▂▃▅▆▇▆▅▃▂   ▂▃▅▆▇▆▅▃▂  ",
+                                        " ▂▃▅▆▇█▇▆▅▃▂ ▂▃▅▆▇█▇▆▅▃▂ ",
+                                        "▂▃▅▆▇███▇▆▅▃▂▃▅▆▇███▇▆▅▃",
+                                        "▃▅▆▇█████▇▆▅▃▅▆▇█████▇▆▅",
+                                        "▂▃▅▆▇███▇▆▅▃▂▃▅▆▇███▇▆▅▃",
+                                        " ▂▃▅▆▇█▇▆▅▃▂ ▂▃▅▆▇█▇▆▅▃▂ ",
+                                        "  ▂▃▅▆▇▆▅▃▂   ▂▃▅▆▇▆▅▃▂  ",
+                                        "   ▂▃▅▃▂        ▂▃▅▃▂   "
+                                    },
+                                    // 3. 饱满高动态波浪 (全屏激荡起伏)
+                                    {
+                                        "▃▅▆▇█████▇▆▅▃▅▆▇█████▇▆▅",
+                                        "▅▆▇███████▇▆▅▆▇███████▇▆",
+                                        "▆▇█████████▇▆▇█████████▇",
+                                        "▇███████████▇███████████",
+                                        "▆▇█████████▇▆▇█████████▇",
+                                        "▅▆▇███████▇▆▅▆▇███████▇▆",
+                                        "▃▅▆▇█████▇▆▅▃▅▆▇█████▇▆▅",
+                                        "▂▃▅▆▇███▇▆▅▃▂▃▅▆▇███▇▆▅▃"
+                                    },
+                                    // 4. 极致澎湃浪潮
+                                    {
+                                        "████████████████████████",
+                                        "▇██████████████████████▇",
+                                        "▆▇████████████████████▇▆",
+                                        "▅▆▇██████████████████▇▆▅",
+                                        "▆▇████████████████████▇▆",
+                                        "▇██████████████████████▇",
+                                        "████████████████████████",
+                                        "▇██████████████████████▇"
+                                    }
                                 };
 
                                 int wave_band = 0;
@@ -177,13 +214,21 @@ private:
                                 else if (energy_level >= 3) wave_band = 1;
                                 else if (energy_level >= 1) wave_band = 0;
 
-                                const char* wave = kFluidWaves[wave_band][self->wave_frame_ % 6];
+                                const char* center_sine = kSineWaves[wave_band][self->wave_frame_ % 8];
 
-                                char status_buf[64];
-                                snprintf(status_buf, sizeof(status_buf), "🎙️ %02d:%02d [%s]",
-                                         elapsed_sec / 60, elapsed_sec % 60, wave);
+                                // 顶部状态栏：保持清爽稳定
+                                char status_buf[48];
+                                snprintf(status_buf, sizeof(status_buf), "🎙️ 正在录音 %02d:%02d",
+                                         elapsed_sec / 60, elapsed_sec % 60);
                                 display->SetStatus(status_buf);
                                 display->SetEmotion("listening");
+
+                                // 屏幕正中央视区：渲染动态起伏的实时正弦流动波浪
+                                char wave_display[160];
+                                snprintf(wave_display, sizeof(wave_display),
+                                         "🎙️ 正在录音 (%d秒)\n\n%s\n\n松开按键发送",
+                                         elapsed_sec, center_sine);
+                                display->SetChatMessage("system", wave_display);
                             }
                         });
                     }
@@ -480,12 +525,9 @@ private:
                 auto& app = Application::GetInstance();
                 app.StartListening();
                 if (GetDisplay()) {
-                    char initial_buf[64];
-                    snprintf(initial_buf, sizeof(initial_buf), "🎙️ 00:00 [ ▂▃▅▆▇▆▅▃▂ ]");
-                    GetDisplay()->SetStatus(initial_buf);
+                    GetDisplay()->SetStatus("🎙️ 正在录音 00:00");
                     GetDisplay()->SetEmotion("listening");
-
-                    GetDisplay()->ShowNotification("🎙️ 按住说话...\n[ ▂▃▅▆▇▆▅▃▂ ]\n松开按键发送", 1200);
+                    GetDisplay()->SetChatMessage("system", "🎙️ 正在录音...\n\n∿∿∿∽∽∽∿∿∿∽∽∽\n\n松开按键发送");
                 }
                 StartRecordTimer();
             });
