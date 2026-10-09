@@ -71,6 +71,7 @@ private:
     lv_obj_t* gateway_item_labels_[kMaxGatewayItems] = {nullptr};
     std::vector<FeishuGateway> cached_gateways_;
     int selected_gateway_index_ = 0;
+    esp_timer_handle_t gateway_hide_timer_ = nullptr;
 
     void RenderIdleLine() {
         if (wave_container_) {
@@ -111,6 +112,11 @@ public:
             esp_timer_stop(volume_hide_timer_);
             esp_timer_delete(volume_hide_timer_);
             volume_hide_timer_ = nullptr;
+        }
+        if (gateway_hide_timer_) {
+            esp_timer_stop(gateway_hide_timer_);
+            esp_timer_delete(gateway_hide_timer_);
+            gateway_hide_timer_ = nullptr;
         }
         if (wave_timer_) {
             lv_timer_delete(wave_timer_);
@@ -366,6 +372,18 @@ public:
         is_recording_ptt_.store(recording, std::memory_order_relaxed);
     }
 
+    void SetWaveTimerPaused(bool paused) {
+        DisplayLockGuard lock(this);
+        if (wave_timer_) {
+            if (paused) {
+                lv_timer_pause(wave_timer_);
+                RenderIdleLine();
+            } else {
+                lv_timer_resume(wave_timer_);
+            }
+        }
+    }
+
     void ShowIdleStraightLine() {
         DisplayLockGuard lock(this);
         was_active_wave_ = false;
@@ -375,14 +393,45 @@ public:
     void ShowGatewayList(const std::vector<FeishuGateway>& gateways) {
         DisplayLockGuard lock(this);
         cached_gateways_ = gateways;
+        selected_gateway_index_ = 0;
+        // 如果候选中有此前配对过的历史网关，优先聚焦该项
+        for (size_t i = 0; i < cached_gateways_.size(); i++) {
+            if (cached_gateways_[i].is_paired) {
+                selected_gateway_index_ = (int)i;
+                break;
+            }
+        }
         if (gateway_modal_) {
             lv_obj_remove_flag(gateway_modal_, LV_OBJ_FLAG_HIDDEN);
         }
+        ResetGatewayHideTimer();
         UpdateGatewayListUI();
+    }
+
+    void ResetGatewayHideTimer() {
+        if (!gateway_hide_timer_) {
+            esp_timer_create_args_t gw_timer_args = {
+                .callback = [](void* arg) {
+                    auto self = static_cast<AiPassportDisplay*>(arg);
+                    self->HideGatewayList();
+                },
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "gw_hide_timer",
+                .skip_unhandled_events = true
+            };
+            esp_timer_create(&gw_timer_args, &gateway_hide_timer_);
+        }
+        esp_timer_stop(gateway_hide_timer_);
+        // 15 秒无操作自动退出网关弹窗，回到主待命时钟看板
+        esp_timer_start_once(gateway_hide_timer_, 15000000);
     }
 
     void HideGatewayList() {
         DisplayLockGuard lock(this);
+        if (gateway_hide_timer_) {
+            esp_timer_stop(gateway_hide_timer_);
+        }
         if (gateway_modal_) {
             lv_obj_add_flag(gateway_modal_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -400,6 +449,7 @@ public:
     void MoveGatewaySelectionUp() {
         DisplayLockGuard lock(this);
         if (cached_gateways_.empty()) return;
+        ResetGatewayHideTimer();
         if (selected_gateway_index_ > 0) {
             selected_gateway_index_--;
             UpdateGatewayListUI();
@@ -409,6 +459,7 @@ public:
     void MoveGatewaySelectionDown() {
         DisplayLockGuard lock(this);
         if (cached_gateways_.empty()) return;
+        ResetGatewayHideTimer();
         if (selected_gateway_index_ < (int)cached_gateways_.size() - 1) {
             selected_gateway_index_++;
             UpdateGatewayListUI();
@@ -417,6 +468,9 @@ public:
 
     void SelectAndConnectGateway(int index) {
         selected_gateway_index_ = index;
+        if (gateway_hide_timer_) {
+            esp_timer_stop(gateway_hide_timer_);
+        }
         if (index >= 0 && index < (int)cached_gateways_.size()) {
             ShowGatewayConnecting(cached_gateways_[index].name);
         }
@@ -447,7 +501,7 @@ public:
             return;
         }
 
-        lv_label_set_text(gateway_sub_label_, "短按▲/▼选择  OK确认配对");
+        lv_label_set_text(gateway_sub_label_, "▲/▼选择 OK确认 长按OK退出");
 
         if (selected_gateway_index_ >= (int)cached_gateways_.size()) {
             selected_gateway_index_ = (int)cached_gateways_.size() - 1;
@@ -463,15 +517,18 @@ public:
                 const auto& gw = cached_gateways_[i];
 
                 char buf[64];
+                const char* star = gw.is_paired ? "★ " : "";
                 if ((int)i == selected_gateway_index_) {
-                    snprintf(buf, sizeof(buf), "▶ %s (%s)", gw.name.c_str(), gw.ip.c_str());
+                    snprintf(buf, sizeof(buf), "▶ %s%s (%s)", star, gw.name.c_str(), gw.ip.c_str());
                     // 选中项：白底黑字反色高亮
                     lv_obj_set_style_bg_color(gateway_item_btns_[i], lv_color_hex(0xFFFFFF), 0);
                     lv_obj_set_style_bg_opa(gateway_item_btns_[i], LV_OPA_COVER, 0);
                     lv_obj_set_style_border_color(gateway_item_btns_[i], lv_color_hex(0xFFFFFF), 0);
                     lv_obj_set_style_text_color(gateway_item_labels_[i], lv_color_hex(0x000000), 0);
+                    // 自动将选中项滚动至可视区域
+                    lv_obj_scroll_to_view(gateway_item_btns_[i], LV_ANIM_ON);
                 } else {
-                    snprintf(buf, sizeof(buf), "  %s (%s)", gw.name.c_str(), gw.ip.c_str());
+                    snprintf(buf, sizeof(buf), "  %s%s (%s)", star, gw.name.c_str(), gw.ip.c_str());
                     // 未选中项：黑底灰框白字
                     lv_obj_set_style_bg_color(gateway_item_btns_[i], lv_color_hex(0x000000), 0);
                     lv_obj_set_style_bg_opa(gateway_item_btns_[i], LV_OPA_COVER, 0);
@@ -582,12 +639,14 @@ private:
 
         display_->SetStatus(status_buf);
         display_->ShowIdleStraightLine();
+        display_->SetWaveTimerPaused(true);
     }
 
     void ExitStandbyClock() {
         if (!is_in_standby_clock_) return;
         is_in_standby_clock_ = false;
         if (display_) {
+            display_->SetWaveTimerPaused(false);
             auto& app = Application::GetInstance();
             display_->ShowIdleStraightLine();
             display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
@@ -911,6 +970,13 @@ private:
         });
         ok->OnLongPress([this]() {
             TouchActivity("OK_LONG");
+            if (display_ && display_->IsGatewayListVisible()) {
+                display_->HideGatewayList();
+                if (display_) {
+                    display_->ShowNotification("[已退出网关选择]", 1500);
+                }
+                return;
+            }
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateSpeaking) {
                 app.AbortSpeaking(kAbortReasonNone);

@@ -85,51 +85,67 @@ public:
             mag[k] = sqrtf(real[k] * real[k] + imag[k] * imag[k]);
         }
 
-        // 15 个频段映射 (16kHz 采样率下，每个频点分辨率 125Hz，0~8000Hz)
+        // 8 个特征频段定义 (0~8000Hz 覆盖超低音、重低音、中频人声到高频泛音)
+        static constexpr size_t kNumBins = 8;
         static const struct {
             uint8_t start_bin;
             uint8_t end_bin;
             float gain;
-        } kBandDefs[kNumBands] = {
-            { 1,  1, 45.0f}, // Band 0:  125 Hz (Sub-bass)
-            { 2,  2, 42.0f}, // Band 1:  250 Hz (Bass)
-            { 3,  3, 40.0f}, // Band 2:  375 Hz
-            { 4,  4, 38.0f}, // Band 3:  500 Hz (Low-mid)
-            { 5,  6, 36.0f}, // Band 4:  625~750 Hz
-            { 7,  8, 35.0f}, // Band 5:  875~1000 Hz (Mid)
-            { 9, 11, 35.0f}, // Band 6:  1125~1375 Hz
-            {12, 15, 36.0f}, // Band 7:  1500~1875 Hz
-            {16, 20, 38.0f}, // Band 8:  2000~2500 Hz (Upper-mid)
-            {21, 26, 40.0f}, // Band 9:  2625~3250 Hz
-            {27, 32, 42.0f}, // Band 10: 3375~4000 Hz (Presence)
-            {33, 39, 45.0f}, // Band 11: 4125~4875 Hz
-            {40, 47, 48.0f}, // Band 12: 5000~5875 Hz
-            {48, 55, 52.0f}, // Band 13: 6000~6875 Hz (Brilliance)
-            {56, 63, 56.0f}, // Band 14: 7000~8000 Hz (Highs)
+        } kBinDefs[kNumBins] = {
+            { 1,  2, 45.0f}, // Bin 0: 125~250 Hz (Bass / 低音基准)
+            { 3,  4, 40.0f}, // Bin 1: 375~500 Hz (Low-Mid / 男低音/底鼓)
+            { 5,  7, 36.0f}, // Bin 2: 625~875 Hz (Mid / 人声主体)
+            { 8, 12, 35.0f}, // Bin 3: 1000~1500 Hz (Upper Mid / 核心人声)
+            {13, 19, 36.0f}, // Bin 4: 1625~2375 Hz (Presence / 人声明亮度)
+            {20, 28, 40.0f}, // Bin 5: 2500~3500 Hz (Clarity / 清晰度)
+            {29, 40, 46.0f}, // Bin 6: 3625~5000 Hz (Treble / 高频泛音)
+            {41, 62, 54.0f}, // Bin 7: 5125~7750 Hz (Air / 通透气声)
         };
 
-        for (size_t b = 0; b < kNumBands; b++) {
+        // 计算 8 个主频段原始能量值
+        float raw_heights[kNumBins];
+        float total_energy = 0.0f;
+        for (size_t b = 0; b < kNumBins; b++) {
             float max_val = 0.0f;
-            for (uint8_t k = kBandDefs[b].start_bin; k <= kBandDefs[b].end_bin; k++) {
+            for (uint8_t k = kBinDefs[b].start_bin; k <= kBinDefs[b].end_bin; k++) {
                 if (mag[k] > max_val) {
                     max_val = mag[k];
                 }
             }
-            int height = 2 + (int)(max_val * kBandDefs[b].gain * 32.0f);
-            if (height > 32) height = 32;
-            if (height < 2) height = 2;
+            total_energy += max_val;
+            raw_heights[b] = max_val * kBinDefs[b].gain * 30.0f;
+        }
+
+        // 软静音门限 (Noise Gate): 抑制待机麦克风底噪或微弱环境杂音
+        // 阈值设定在 ~0.025f，低于门限时直接进入 2px 静息基线状态
+        bool is_silent = (total_energy < 0.028f);
+
+        // 方案 B：双向对称镜像排布映射表 (15 根柱子: 外侧高频/低频均衡 -> 正中心为人声/主低频核心)
+        // 映射索引: [7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7]
+        static const uint8_t kMirrorMap[kNumBands] = {
+            7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7
+        };
+
+        for (size_t i = 0; i < kNumBands; i++) {
+            int target_h = 2;
+            if (!is_silent) {
+                uint8_t bin_idx = kMirrorMap[i];
+                target_h = 2 + (int)raw_heights[bin_idx];
+                if (target_h > 32) target_h = 32;
+                if (target_h < 2) target_h = 2;
+            }
 
             // 平滑下落衰减 (Peak Decay)
-            if (height >= decay_bands[b]) {
-                decay_bands[b] = (uint8_t)height;
+            if (target_h >= decay_bands[i]) {
+                decay_bands[i] = (uint8_t)target_h;
             } else {
-                if (decay_bands[b] > 3) {
-                    decay_bands[b] -= 2; // 每帧平滑下落 2px
+                if (decay_bands[i] > 3) {
+                    decay_bands[i] -= 2; // 每帧平滑下落 2px
                 } else {
-                    decay_bands[b] = 2;
+                    decay_bands[i] = 2;
                 }
             }
-            bands_out[b] = decay_bands[b];
+            bands_out[i] = decay_bands[i];
         }
     }
 };

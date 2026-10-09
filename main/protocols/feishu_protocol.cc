@@ -125,15 +125,22 @@ void FeishuProtocol::StartDiscovery() {
                                 {
                                     std::lock_guard<std::mutex> lock(self->gateways_mutex_);
                                     bool exists = false;
+                                    bool is_history_paired = (self->is_paired_ && self->gateway_ip_ == ip_str);
                                     for (auto& gw : self->discovered_gateways_) {
                                         if (gw.ip == ip_str && gw.port == port) {
                                             gw.name = gw_name;
+                                            gw.is_paired = is_history_paired;
                                             exists = true;
                                             break;
                                         }
                                     }
                                     if (!exists) {
-                                        self->discovered_gateways_.push_back({gw_name, ip_str, port});
+                                        FeishuGateway new_gw{gw_name, ip_str, port, is_history_paired};
+                                        if (is_history_paired) {
+                                            self->discovered_gateways_.insert(self->discovered_gateways_.begin(), new_gw);
+                                        } else {
+                                            self->discovered_gateways_.push_back(new_gw);
+                                        }
                                         is_new = true;
                                     }
                                     self->pending_gw_ip_ = ip_str;

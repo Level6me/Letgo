@@ -15,6 +15,7 @@ struct FeishuGateway {
     std::string name;
     std::string ip;
     int port = 8765;
+    bool is_paired = false;
 };
 
 class FeishuProtocol : public Protocol {
