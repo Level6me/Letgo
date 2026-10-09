@@ -750,7 +750,7 @@ public:
             return;
         }
 
-        lv_label_set_text(gateway_sub_label_, "UP/DOWN: Move   OK: Connect");
+        lv_label_set_text(gateway_sub_label_, "UP/DOWN: Move   OK: Connect (Hold: Exit)");
 
         if (selected_gateway_index_ >= (int)cached_gateways_.size()) {
             selected_gateway_index_ = (int)cached_gateways_.size() - 1;
@@ -887,7 +887,7 @@ public:
             return;
         }
 
-        lv_label_set_text(project_sub_label_, "UP/DOWN: Move   OK: Switch");
+        lv_label_set_text(project_sub_label_, "UP/DOWN: Move   OK: Switch (Hold: Exit)");
 
         if (selected_project_index_ >= (int)cached_projects_.size()) {
             selected_project_index_ = (int)cached_projects_.size() - 1;
@@ -1014,7 +1014,7 @@ public:
             "Reboot (重启设备)"
         };
 
-        lv_label_set_text(settings_sub_label_, "UP/DOWN: Move   OK: Select");
+        lv_label_set_text(settings_sub_label_, "UP/DOWN: Move   OK: Select (Hold: Exit)");
 
         for (size_t i = 0; i < kMaxSettingsItems; i++) {
             if (!settings_item_containers_[i]) continue;
@@ -1190,6 +1190,41 @@ private:
     bool ok_speech_aborted_ = false;
     bool ok_stop_listening_on_down_ = false;
     int64_t last_ok_tap_time_ = 0;
+    esp_timer_handle_t menu_long_press_timer_ = nullptr;
+    bool ok_menu_closed_by_long_press_ = false;
+
+    void StartMenuLongPressTimer() {
+        if (!menu_long_press_timer_) {
+            esp_timer_create_args_t timer_args = {
+                .callback = [](void* arg) {
+                    auto self = static_cast<AiPassportBoard*>(arg);
+                    Application::GetInstance().Schedule([self]() {
+                        if (self->display_ && self->display_->IsAnyMenuVisible()) {
+                            self->ok_menu_closed_by_long_press_ = true;
+                            self->display_->HideAllMenus();
+                            self->display_->ShowNotification("Main screen", 1200);
+                            auto& app = Application::GetInstance();
+                            self->display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                            self->display_->ShowIdleStraightLine();
+                            ESP_LOGI(TAG, "Menu closed by OK long press (500ms timer)");
+                        }
+                    });
+                },
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "menu_lp_timer"
+            };
+            esp_timer_create(&timer_args, &menu_long_press_timer_);
+        }
+        esp_timer_stop(menu_long_press_timer_);
+        esp_timer_start_once(menu_long_press_timer_, 500000); // 500ms
+    }
+
+    void StopMenuLongPressTimer() {
+        if (menu_long_press_timer_) {
+            esp_timer_stop(menu_long_press_timer_);
+        }
+    }
 
     bool CheckAndAbortSpeaking() {
         auto& app = Application::GetInstance();
@@ -1664,8 +1699,10 @@ private:
             ok_speech_aborted_ = false;
             ok_stop_listening_on_down_ = false;
 
-            // 1. 如果菜单开启，按下仅作为触摸激活，不触发对讲
+            // 1. 如果菜单开启，按下时立即启动 500ms 长按退出检测定时器，不触发对讲
             if (display_ && display_->IsAnyMenuVisible()) {
+                ok_menu_closed_by_long_press_ = false;
+                StartMenuLongPressTimer();
                 return;
             }
 
@@ -1711,10 +1748,31 @@ private:
             }
         });
 
+        ok->OnLongPress([this]() {
+            TouchActivity("OK_LONG");
+            StopMenuLongPressTimer();
+            if (display_ && display_->IsAnyMenuVisible()) {
+                ok_menu_closed_by_long_press_ = true;
+                display_->HideAllMenus();
+                display_->ShowNotification("Main screen", 1200);
+                auto& app = Application::GetInstance();
+                display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                display_->ShowIdleStraightLine();
+                ESP_LOGI(TAG, "Menu closed by OK OnLongPress");
+            }
+        });
+
         ok->OnPressUp([this]() {
             TouchActivity("OK_UP");
+            StopMenuLongPressTimer();
             int64_t now = esp_timer_get_time();
             int64_t duration_ms = (now - ok_press_down_time_) / 1000;
+
+            // 如果刚才长按已经退出了菜单，抬手仅消耗事件，直接返回
+            if (ok_menu_closed_by_long_press_) {
+                ok_menu_closed_by_long_press_ = false;
+                return;
+            }
 
             // 如果刚才打断了语音播报，抬手不做任何额外处理
             if (ok_speech_aborted_) {
@@ -1730,9 +1788,13 @@ private:
 
             // 菜单可见时的选择确认逻辑
             if (display_ && display_->IsAnyMenuVisible()) {
-                if (duration_ms > 1200) {
+                // 如果按住达到 500ms（兜底长按逻辑），关闭菜单返回主界面
+                if (duration_ms >= 500) {
                     display_->HideAllMenus();
                     display_->ShowNotification("Main screen", 1200);
+                    auto& app = Application::GetInstance();
+                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                    display_->ShowIdleStraightLine();
                     return;
                 }
                 if (display_->IsGatewayListVisible()) {
@@ -1903,6 +1965,24 @@ private:
     }
 
 public:
+    virtual ~AiPassportBoard() {
+        if (dim_timer_) {
+            esp_timer_stop(dim_timer_);
+            esp_timer_delete(dim_timer_);
+            dim_timer_ = nullptr;
+        }
+        if (record_timer_) {
+            esp_timer_stop(record_timer_);
+            esp_timer_delete(record_timer_);
+            record_timer_ = nullptr;
+        }
+        if (menu_long_press_timer_) {
+            esp_timer_stop(menu_long_press_timer_);
+            esp_timer_delete(menu_long_press_timer_);
+            menu_long_press_timer_ = nullptr;
+        }
+    }
+
     AiPassportBoard() : display_(nullptr), battery_(nullptr) {
         InitializeCodecI2c();
         InitializeSpi();
