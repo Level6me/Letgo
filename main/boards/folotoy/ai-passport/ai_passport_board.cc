@@ -25,10 +25,7 @@
 
 #define TAG "AiPassport"
 
-// 引入板级离线完整中文字体（涵盖 ASCII 及所有设置/配网/菜单汉字与特殊箭头符号）
-extern "C" {
-LV_FONT_DECLARE(ai_passport_cjk_fallback);
-}
+
 
 // Physical keys share one ADC pin through a resistor ladder (see config.h).
 enum {
@@ -236,12 +233,8 @@ public:
             }
         }
 
-        // 5. 屏幕底部音量胶囊 HUD (黑底白边，内含喇叭图标与音量百分比)
         auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
-        if (lvgl_theme && lvgl_theme->text_font()) {
-            lvgl_theme->text_font()->SetFallback(&ai_passport_cjk_fallback);
-        }
-        const lv_font_t* text_font = &ai_passport_cjk_fallback;
+        const lv_font_t* text_font = lvgl_theme && lvgl_theme->text_font() ? lvgl_theme->text_font()->font() : nullptr;
         const lv_font_t* icon_font = lvgl_theme && lvgl_theme->icon_font() ? lvgl_theme->icon_font()->font() : nullptr;
 
         bottom_volume_box_ = lv_obj_create(screen);
@@ -330,7 +323,7 @@ public:
         gateway_title_label_ = lv_label_create(gateway_modal_);
         if (text_font) lv_obj_set_style_text_font(gateway_title_label_, text_font, 0);
         lv_obj_set_style_text_color(gateway_title_label_, lv_color_hex(0xFFFFFF), 0);
-        lv_label_set_text(gateway_title_label_, "[ 选择飞书服务 ]");
+        lv_label_set_text(gateway_title_label_, "[ Feishu Gateway ]");
 
         gateway_sub_label_ = lv_label_create(gateway_modal_);
         if (text_font) lv_obj_set_style_text_font(gateway_sub_label_, text_font, 0);
@@ -338,7 +331,7 @@ public:
         lv_obj_set_width(gateway_sub_label_, 216);
         lv_label_set_long_mode(gateway_sub_label_, LV_LABEL_LONG_CLIP);
         lv_obj_set_style_text_align(gateway_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(gateway_sub_label_, "短按▲/▼选择  OK确认配对");
+        lv_label_set_text(gateway_sub_label_, "UP/DOWN: Move   OK: Connect");
 
         gateway_sep_ = lv_obj_create(gateway_modal_);
         lv_obj_set_size(gateway_sep_, 214, 1);
@@ -411,7 +404,7 @@ public:
         project_title_label_ = lv_label_create(project_modal_);
         if (text_font) lv_obj_set_style_text_font(project_title_label_, text_font, 0);
         lv_obj_set_style_text_color(project_title_label_, lv_color_hex(0xFFFFFF), 0);
-        lv_label_set_text(project_title_label_, "[ 项目切换 ]");
+        lv_label_set_text(project_title_label_, "[ Projects ]");
 
         project_sub_label_ = lv_label_create(project_modal_);
         if (text_font) lv_obj_set_style_text_font(project_sub_label_, text_font, 0);
@@ -419,7 +412,7 @@ public:
         lv_obj_set_width(project_sub_label_, 216);
         lv_label_set_long_mode(project_sub_label_, LV_LABEL_LONG_CLIP);
         lv_obj_set_style_text_align(project_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(project_sub_label_, "▲/▼选择 OK确认 长按OK退出");
+        lv_label_set_text(project_sub_label_, "UP/DOWN: Move   OK: Switch");
 
         project_sep_ = lv_obj_create(project_modal_);
         lv_obj_set_size(project_sep_, 214, 1);
@@ -492,7 +485,7 @@ public:
         settings_title_label_ = lv_label_create(settings_modal_);
         if (text_font) lv_obj_set_style_text_font(settings_title_label_, text_font, 0);
         lv_obj_set_style_text_color(settings_title_label_, lv_color_hex(0xFFFFFF), 0);
-        lv_label_set_text(settings_title_label_, "[ 系统设置 ]");
+        lv_label_set_text(settings_title_label_, "[ Settings / 设定 ]");
 
         settings_sub_label_ = lv_label_create(settings_modal_);
         if (text_font) lv_obj_set_style_text_font(settings_sub_label_, text_font, 0);
@@ -500,7 +493,7 @@ public:
         lv_obj_set_width(settings_sub_label_, 216);
         lv_label_set_long_mode(settings_sub_label_, LV_LABEL_LONG_CLIP);
         lv_obj_set_style_text_align(settings_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(settings_sub_label_, "▲/▼移动  OK确认  长按退出");
+        lv_label_set_text(settings_sub_label_, "UP/DOWN: Move   OK: Select");
 
         settings_sep_ = lv_obj_create(settings_modal_);
         lv_obj_set_size(settings_sep_, 214, 1);
@@ -739,7 +732,7 @@ public:
     void ShowGatewayConnecting(const std::string& name) {
         DisplayLockGuard lock(this);
         if (gateway_sub_label_) {
-            std::string text = "⏳ 正在连接: " + name + "\n请在飞书确认同意";
+            std::string text = "Connecting: " + name + "\nPlease confirm on Feishu";
             lv_label_set_text(gateway_sub_label_, text.c_str());
         }
     }
@@ -748,7 +741,7 @@ public:
         if (!gateway_modal_) return;
 
         if (cached_gateways_.empty()) {
-            lv_label_set_text(gateway_sub_label_, "🔍 搜索中... 请确认控制台已启动");
+            lv_label_set_text(gateway_sub_label_, "Searching... Please wait");
             for (size_t i = 0; i < kMaxGatewayItems; i++) {
                 if (gateway_item_containers_[i]) {
                     lv_obj_add_flag(gateway_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
@@ -757,7 +750,7 @@ public:
             return;
         }
 
-        lv_label_set_text(gateway_sub_label_, "▲/▼移动  OK配对  长按退出");
+        lv_label_set_text(gateway_sub_label_, "UP/DOWN: Move   OK: Connect");
 
         if (selected_gateway_index_ >= (int)cached_gateways_.size()) {
             selected_gateway_index_ = (int)cached_gateways_.size() - 1;
@@ -885,7 +878,7 @@ public:
         if (!project_modal_) return;
 
         if (cached_projects_.empty()) {
-            lv_label_set_text(project_sub_label_, "⚠️ 暂无可用项目");
+            lv_label_set_text(project_sub_label_, "No projects found");
             for (size_t i = 0; i < kMaxProjectItems; i++) {
                 if (project_item_containers_[i]) {
                     lv_obj_add_flag(project_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
@@ -894,7 +887,7 @@ public:
             return;
         }
 
-        lv_label_set_text(project_sub_label_, "▲/▼移动  OK切换  长按退出");
+        lv_label_set_text(project_sub_label_, "UP/DOWN: Move   OK: Switch");
 
         if (selected_project_index_ >= (int)cached_projects_.size()) {
             selected_project_index_ = (int)cached_projects_.size() - 1;
@@ -1012,16 +1005,16 @@ public:
         if (!settings_modal_) return;
 
         static const char* kSettingsTitles[kMaxSettingsItems] = {
-            "亮度调节",
-            "音量调节",
-            "主题配置 (反色)",
-            "服务端配置",
-            "网络配网",
-            "设备信息",
-            "重启设备"
+            "Brightness",
+            "Volume (音量)",
+            "Theme (模式切换)",
+            "Gateway (服务连接)",
+            "WiFi (重新配网)",
+            "Device Info (设备信息)",
+            "Reboot (重启设备)"
         };
 
-        lv_label_set_text(settings_sub_label_, "▲/▼移动  OK确认  长按退出");
+        lv_label_set_text(settings_sub_label_, "UP/DOWN: Move   OK: Select");
 
         for (size_t i = 0; i < kMaxSettingsItems; i++) {
             if (!settings_item_containers_[i]) continue;
@@ -1135,7 +1128,7 @@ public:
         ApplyThemeStyles();
         Settings settings("display", true);
         settings.SetInt("invert_color", is_theme_inverted_ ? 1 : 0);
-        ShowNotification(is_theme_inverted_ ? "[已切换: 白底黑字]" : "[已切换: 黑底白字]", 1500);
+        ShowNotification(is_theme_inverted_ ? "Theme: White" : "Theme: Black", 1500);
     }
 
     void ApplySavedThemeInvert() {
@@ -1201,8 +1194,8 @@ private:
             app.AbortSpeaking(kAbortReasonNone);
             app.GetAudioService().ResetDecoder();
             if (display_) {
-                display_->ShowNotification("[语音播报已打断]", 1200);
-                display_->SetStatus("[已打断]");
+                display_->ShowNotification("Barge-in", 1200);
+                display_->SetStatus("[待命]");
                 display_->ShowIdleStraightLine();
             }
             return true;
@@ -1232,7 +1225,7 @@ private:
 
         char status_buf[64];
         snprintf(status_buf, sizeof(status_buf), "%s  %s",
-                 time_buf, feishu_online ? "已连接" : "离线");
+                 time_buf, feishu_online ? "[已连接]" : "[待命]");
 
         display_->SetStatus(status_buf);
         display_->ShowIdleStraightLine();
@@ -1313,7 +1306,7 @@ private:
                 app.StopListening();
             }
             if (display_) {
-                display_->ShowNotification("[录音时间过短]\n[已取消发送]", 1500);
+                display_->ShowNotification("Audio too short", 1500);
                 display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
             }
             return;
@@ -1329,9 +1322,9 @@ private:
 
         if (display_) {
             char tip[64];
-            snprintf(tip, sizeof(tip), "[录音完成 (%d秒)]\n[等待飞书处理...]", duration_sec);
+            snprintf(tip, sizeof(tip), "Audio sent (%ds)\nProcessing...", duration_sec);
             display_->ShowNotification(tip, 1500);
-            display_->SetStatus("[思考中...]");
+            display_->SetStatus("[Thinking...]");
         }
     }
 
@@ -1425,7 +1418,7 @@ private:
             case 4: // 网络配网
                 if (display_) {
                     display_->HideSettingsList();
-                    display_->ShowNotification("[进入热点配网模式...]", 3000);
+                    display_->ShowNotification("Entering WiFi Config...", 3000);
                 }
                 EnterWifiConfigMode();
                 break;
@@ -1436,7 +1429,7 @@ private:
                 auto& app = Application::GetInstance();
                 auto& wifi = WifiManager::GetInstance();
                 std::string ip = wifi.GetIpAddress();
-                if (ip.empty()) ip = "未分配";
+                if (ip.empty()) ip = "None";
                 bool connected = app.IsFeishuConnected();
                 std::string gw = app.GetFeishuGatewayIp();
                 int battery_level = -1;
@@ -1447,12 +1440,12 @@ private:
                 }
                 std::string info = "IP: " + ip;
                 if (connected) {
-                    info += "\n控制台: 已连接 (" + gw + ")";
+                    info += "\nGateway: Connected (" + gw + ")";
                 } else {
-                    info += "\n控制台: 未连接";
+                    info += "\nGateway: Disconnected";
                 }
                 if (battery_level >= 0) {
-                    info += "\n电量: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
+                    info += "\nBattery: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
                 }
                 if (display_) {
                     display_->ShowNotification(info.c_str(), 4500);
@@ -1462,7 +1455,7 @@ private:
             case 6: // 重启设备
                 if (display_) {
                     display_->HideSettingsList();
-                    display_->ShowNotification("[正在重启设备...]", 2000);
+                    display_->ShowNotification("Rebooting...", 2000);
                 }
                 Application::GetInstance().Schedule([]() {
                     Application::GetInstance().Reboot();
@@ -1569,13 +1562,13 @@ private:
                 auto& app = Application::GetInstance();
                 if (!app.IsFeishuConnected()) {
                     if (display_) {
-                        display_->ShowNotification("[正在搜索控制台网关...]", 3000);
-                        display_->SetStatus("[搜索中...]");
+                        display_->ShowNotification("Searching gateway...", 3000);
+                        display_->SetStatus("[待命]");
                     }
                     app.TriggerFeishuDiscovery();
                 } else {
                     if (display_) {
-                        display_->ShowNotification("[正在刷新数据...]", 2000);
+                        display_->ShowNotification("Refreshing...", 2000);
                     }
                     app.SendFeishuButtonEvent("up", "double_click");
                 }
@@ -1585,7 +1578,7 @@ private:
             TouchActivity("UP_LONG");
             Application::GetInstance().Schedule([this]() {
                 if (display_) {
-                    display_->ShowNotification("[进入热点配网模式...]", 3000);
+                    display_->ShowNotification("Entering WiFi Config...", 3000);
                 }
                 EnterWifiConfigMode();
             });
@@ -1623,7 +1616,7 @@ private:
                 auto& wifi = WifiManager::GetInstance();
                 std::string ip = wifi.GetIpAddress();
                 if (ip.empty()) {
-                    ip = "未分配";
+                    ip = "None";
                 }
                 bool connected = app.IsFeishuConnected();
                 std::string gw = app.GetFeishuGatewayIp();
@@ -1637,12 +1630,12 @@ private:
 
                 std::string info = "IP: " + ip;
                 if (connected) {
-                    info += "\n控制台: 已连接 (" + gw + ")";
+                    info += "\nGateway: Connected (" + gw + ")";
                 } else {
-                    info += "\n控制台: 未连接 [双击上键搜索]";
+                    info += "\nGateway: Disconnected";
                 }
                 if (battery_level >= 0) {
-                    info += "\n电量: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
+                    info += "\nBattery: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
                 }
                 if (display_) {
                     display_->ShowNotification(info.c_str(), 4500);
@@ -1677,7 +1670,7 @@ private:
                     if (!selected_proj.empty()) {
                         current_project_ = selected_proj;
                         char buf[64];
-                        snprintf(buf, sizeof(buf), "[已切换至项目:\n%s]", selected_proj.c_str());
+                        snprintf(buf, sizeof(buf), "Switched to:\n%s", selected_proj.c_str());
                         display_->ShowNotification(buf, 1500);
                         Application::GetInstance().Schedule([selected_proj]() {
                             Application::GetInstance().SwitchFeishuProject(selected_proj);
@@ -1712,7 +1705,7 @@ private:
                     return;
                 }
                 if (display_) {
-                    display_->ShowNotification("[正在请求重播上一句...]", 1500);
+                    display_->ShowNotification("Requesting replay...", 1500);
                 }
                 if (app.IsFeishuConnected()) {
                     app.SendFeishuButtonEvent("ok", "double_click");
@@ -1726,7 +1719,7 @@ private:
                 if (display_) {
                     auto& app = Application::GetInstance();
                     display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
-                    display_->ShowNotification("[已返回主界面]", 1200);
+                    display_->ShowNotification("Main screen", 1200);
                 }
                 return;
             }

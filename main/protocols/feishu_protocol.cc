@@ -373,7 +373,17 @@ bool FeishuProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
     if (!websocket_ || !websocket_->IsConnected() || !packet) {
         return false;
     }
-    return websocket_->Send((const char*)packet->payload.data(), packet->payload.size(), true);
+    // ESP32-C3 单核 LwIP 套接字发送缓冲区较小，在突发网络或瞬时满负荷时进行微小退避重试，防止一刀切失败
+    for (int retry = 0; retry < 3; retry++) {
+        if (websocket_->Send((const char*)packet->payload.data(), packet->payload.size(), true)) {
+            return true;
+        }
+        if (!websocket_->IsConnected()) {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return false;
 }
 
 bool FeishuProtocol::OpenAudioChannel() {
