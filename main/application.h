@@ -130,6 +130,9 @@ public:
     void ConnectFeishuGatewayByIndex(size_t index);
     void ConnectFeishuGateway(const std::string& ip, int port);
     void SetOnFeishuGatewaysChanged(std::function<void(const std::vector<FeishuGateway>&)> cb);
+    void RequestFeishuProjectList();
+    void SwitchFeishuProject(const std::string& project_name);
+    void SetOnFeishuProjectsReceived(std::function<void(const std::vector<std::string>&, const std::string&)> cb);
     void SetFeishuAwaitingReply(bool awaiting);
     bool IsFeishuAwaitingReply() const;
     
@@ -160,6 +163,7 @@ private:
 
     std::function<void(const std::string&)> mcp_broadcast_callback_;
     std::function<void(const std::vector<FeishuGateway>&)> on_feishu_gateways_changed_;
+    std::function<void(const std::vector<std::string>&, const std::string&)> on_feishu_projects_received_;
 
     bool has_server_time_ = false;
     bool aborted_ = false;

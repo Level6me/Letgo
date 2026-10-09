@@ -198,6 +198,26 @@ void FeishuProtocol::SetOnGatewaysChanged(std::function<void(const std::vector<F
     on_gateways_changed_ = std::move(cb);
 }
 
+void FeishuProtocol::RequestProjectList() {
+    ESP_LOGI(TAG, "Requesting project list from Feishu gateway");
+    SendText("{\"type\":\"project_list\"}");
+}
+
+void FeishuProtocol::SwitchProject(const std::string& project_name) {
+    ESP_LOGI(TAG, "Switching to project: %s", project_name.c_str());
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "type", "switch_project");
+    cJSON_AddStringToObject(root, "project", project_name.c_str());
+    char* json_str = cJSON_PrintUnformatted(root);
+    SendText(json_str);
+    cJSON_free(json_str);
+    cJSON_Delete(root);
+}
+
+void FeishuProtocol::SetOnProjectListReceived(std::function<void(const std::vector<std::string>&, const std::string&)> cb) {
+    on_project_list_received_ = std::move(cb);
+}
+
 void FeishuProtocol::ConnectSelectedGateway() {
     if (pending_gw_ip_.empty()) return;
     ESP_LOGI(TAG, "Connecting to selected gateway for pairing: %s:%d", pending_gw_ip_.c_str(), pending_gw_port_);
@@ -537,6 +557,40 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 display->SetStatus(info.c_str());
             });
         }
+    } else if (type_str == "project_list") {
+        std::vector<std::string> projects;
+        std::string current_project;
+        auto current_item = cJSON_GetObjectItem(root, "current");
+        if (cJSON_IsString(current_item)) {
+            current_project = current_item->valuestring;
+        }
+        auto list_item = cJSON_GetObjectItem(root, "projects");
+        if (cJSON_IsArray(list_item)) {
+            cJSON* elem = nullptr;
+            cJSON_ArrayForEach(elem, list_item) {
+                if (cJSON_IsString(elem)) {
+                    projects.push_back(elem->valuestring);
+                }
+            }
+        }
+        if (on_project_list_received_) {
+            Application::GetInstance().Schedule([this, projects, current_project]() {
+                if (on_project_list_received_) {
+                    on_project_list_received_(projects, current_project);
+                }
+            });
+        }
+    } else if (type_str == "project_switched") {
+        auto proj = cJSON_GetObjectItem(root, "project");
+        std::string name = cJSON_IsString(proj) ? proj->valuestring : "";
+        Application::GetInstance().Schedule([display, name]() {
+            if (display) {
+                std::string tip = "✅ 已切换至项目:\n" + name;
+                display->ShowNotification(tip.c_str(), 2500);
+                std::string st = "[" + name + "]";
+                display->SetStatus(st.c_str());
+            }
+        });
     } else if (type_str == "handshake_ack") {
         if (display) {
             Application::GetInstance().Schedule([display]() {

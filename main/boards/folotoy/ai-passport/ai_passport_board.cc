@@ -73,6 +73,35 @@ private:
     int selected_gateway_index_ = 0;
     esp_timer_handle_t gateway_hide_timer_ = nullptr;
 
+    // 项目切换弹窗 (极简单横线下划线选中指示)
+    lv_obj_t* project_modal_ = nullptr;
+    lv_obj_t* project_title_label_ = nullptr;
+    lv_obj_t* project_sub_label_ = nullptr;
+    lv_obj_t* project_list_box_ = nullptr;
+    static constexpr size_t kMaxProjectItems = 6;
+    lv_obj_t* project_item_containers_[kMaxProjectItems] = {nullptr};
+    lv_obj_t* project_item_labels_[kMaxProjectItems] = {nullptr};
+    lv_obj_t* project_item_lines_[kMaxProjectItems] = {nullptr};
+    std::vector<std::string> cached_projects_;
+    std::string current_project_name_;
+    int selected_project_index_ = 0;
+    esp_timer_handle_t project_hide_timer_ = nullptr;
+
+    // 系统设置弹窗 (极简单横线下划线选中指示)
+    lv_obj_t* settings_modal_ = nullptr;
+    lv_obj_t* settings_title_label_ = nullptr;
+    lv_obj_t* settings_sub_label_ = nullptr;
+    lv_obj_t* settings_list_box_ = nullptr;
+    static constexpr size_t kMaxSettingsItems = 7;
+    lv_obj_t* settings_item_containers_[kMaxSettingsItems] = {nullptr};
+    lv_obj_t* settings_item_labels_[kMaxSettingsItems] = {nullptr};
+    lv_obj_t* settings_item_lines_[kMaxSettingsItems] = {nullptr};
+    int selected_settings_index_ = 0;
+    esp_timer_handle_t settings_hide_timer_ = nullptr;
+
+    // 主题反色状态 (false: 纯黑底白字; true: 纯白底黑字)
+    bool is_theme_inverted_ = false;
+
     void RenderIdleLine() {
         if (wave_container_) {
             lv_obj_add_flag(wave_container_, LV_OBJ_FLAG_HIDDEN);
@@ -117,6 +146,16 @@ public:
             esp_timer_stop(gateway_hide_timer_);
             esp_timer_delete(gateway_hide_timer_);
             gateway_hide_timer_ = nullptr;
+        }
+        if (project_hide_timer_) {
+            esp_timer_stop(project_hide_timer_);
+            esp_timer_delete(project_hide_timer_);
+            project_hide_timer_ = nullptr;
+        }
+        if (settings_hide_timer_) {
+            esp_timer_stop(settings_hide_timer_);
+            esp_timer_delete(settings_hide_timer_);
+            settings_hide_timer_ = nullptr;
         }
         if (wave_timer_) {
             lv_timer_delete(wave_timer_);
@@ -308,7 +347,147 @@ public:
             lv_obj_set_user_data(gateway_item_btns_[i], (void*)(intptr_t)i);
         }
 
-        // 8. 真实 FFT 频谱 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
+        // 8. 项目切换选择弹窗 (单横线下划线极简指示)
+        project_modal_ = lv_obj_create(screen);
+        lv_obj_set_size(project_modal_, 224, 250);
+        lv_obj_align(project_modal_, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_color(project_modal_, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(project_modal_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(project_modal_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_border_width(project_modal_, 2, 0);
+        lv_obj_set_style_radius(project_modal_, 8, 0);
+        lv_obj_set_style_pad_all(project_modal_, 8, 0);
+        lv_obj_set_flex_flow(project_modal_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(project_modal_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(project_modal_, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_add_flag(project_modal_, LV_OBJ_FLAG_HIDDEN);
+
+        project_title_label_ = lv_label_create(project_modal_);
+        if (text_font) lv_obj_set_style_text_font(project_title_label_, text_font, 0);
+        lv_obj_set_style_text_color(project_title_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_label_set_text(project_title_label_, "[ 项目切换 ]");
+
+        project_sub_label_ = lv_label_create(project_modal_);
+        if (text_font) lv_obj_set_style_text_font(project_sub_label_, text_font, 0);
+        lv_obj_set_style_text_color(project_sub_label_, lv_color_hex(0xAAAAAA), 0);
+        lv_label_set_text(project_sub_label_, "▲/▼选择 OK确认 长按OK退出");
+
+        lv_obj_t* p_sep = lv_obj_create(project_modal_);
+        lv_obj_set_size(p_sep, 204, 1);
+        lv_obj_set_style_bg_color(p_sep, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(p_sep, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(p_sep, 0, 0);
+        lv_obj_set_style_margin_top(p_sep, 2, 0);
+        lv_obj_set_style_margin_bottom(p_sep, 4, 0);
+
+        project_list_box_ = lv_obj_create(project_modal_);
+        lv_obj_set_size(project_list_box_, 208, 150);
+        lv_obj_set_style_bg_opa(project_list_box_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(project_list_box_, 0, 0);
+        lv_obj_set_style_pad_all(project_list_box_, 0, 0);
+        lv_obj_set_flex_flow(project_list_box_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(project_list_box_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(project_list_box_, LV_SCROLLBAR_MODE_AUTO);
+
+        for (size_t i = 0; i < kMaxProjectItems; i++) {
+            project_item_containers_[i] = lv_obj_create(project_list_box_);
+            lv_obj_set_size(project_item_containers_[i], 200, 26);
+            lv_obj_set_style_bg_opa(project_item_containers_[i], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(project_item_containers_[i], 0, 0);
+            lv_obj_set_style_pad_all(project_item_containers_[i], 0, 0);
+            lv_obj_set_scrollbar_mode(project_item_containers_[i], LV_SCROLLBAR_MODE_OFF);
+            lv_obj_set_flex_flow(project_item_containers_[i], LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_flex_align(project_item_containers_[i], LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+            project_item_labels_[i] = lv_label_create(project_item_containers_[i]);
+            if (text_font) lv_obj_set_style_text_font(project_item_labels_[i], text_font, 0);
+            lv_obj_set_style_text_color(project_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
+
+            // 单横线下划线指示 (高1px, 纯白)
+            project_item_lines_[i] = lv_obj_create(project_item_containers_[i]);
+            lv_obj_set_size(project_item_lines_[i], 120, 1);
+            lv_obj_set_style_bg_color(project_item_lines_[i], lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_bg_opa(project_item_lines_[i], LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(project_item_lines_[i], 0, 0);
+            lv_obj_set_style_radius(project_item_lines_[i], 0, 0);
+            lv_obj_set_style_margin_top(project_item_lines_[i], 1, 0);
+            lv_obj_set_scrollbar_mode(project_item_lines_[i], LV_SCROLLBAR_MODE_OFF);
+            lv_obj_add_flag(project_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
+
+            lv_obj_add_flag(project_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // 9. 系统设置选择弹窗 (单横线下划线极简指示)
+        settings_modal_ = lv_obj_create(screen);
+        lv_obj_set_size(settings_modal_, 224, 250);
+        lv_obj_align(settings_modal_, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_color(settings_modal_, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(settings_modal_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(settings_modal_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_border_width(settings_modal_, 2, 0);
+        lv_obj_set_style_radius(settings_modal_, 8, 0);
+        lv_obj_set_style_pad_all(settings_modal_, 8, 0);
+        lv_obj_set_flex_flow(settings_modal_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(settings_modal_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(settings_modal_, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_add_flag(settings_modal_, LV_OBJ_FLAG_HIDDEN);
+
+        settings_title_label_ = lv_label_create(settings_modal_);
+        if (text_font) lv_obj_set_style_text_font(settings_title_label_, text_font, 0);
+        lv_obj_set_style_text_color(settings_title_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_label_set_text(settings_title_label_, "[ 系统设置 ]");
+
+        settings_sub_label_ = lv_label_create(settings_modal_);
+        if (text_font) lv_obj_set_style_text_font(settings_sub_label_, text_font, 0);
+        lv_obj_set_style_text_color(settings_sub_label_, lv_color_hex(0xAAAAAA), 0);
+        lv_label_set_text(settings_sub_label_, "▲/▼选择 OK确认 长按OK退出");
+
+        lv_obj_t* s_sep = lv_obj_create(settings_modal_);
+        lv_obj_set_size(s_sep, 204, 1);
+        lv_obj_set_style_bg_color(s_sep, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(s_sep, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(s_sep, 0, 0);
+        lv_obj_set_style_margin_top(s_sep, 2, 0);
+        lv_obj_set_style_margin_bottom(s_sep, 4, 0);
+
+        settings_list_box_ = lv_obj_create(settings_modal_);
+        lv_obj_set_size(settings_list_box_, 208, 150);
+        lv_obj_set_style_bg_opa(settings_list_box_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(settings_list_box_, 0, 0);
+        lv_obj_set_style_pad_all(settings_list_box_, 0, 0);
+        lv_obj_set_flex_flow(settings_list_box_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(settings_list_box_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(settings_list_box_, LV_SCROLLBAR_MODE_AUTO);
+
+        for (size_t i = 0; i < kMaxSettingsItems; i++) {
+            settings_item_containers_[i] = lv_obj_create(settings_list_box_);
+            lv_obj_set_size(settings_item_containers_[i], 200, 26);
+            lv_obj_set_style_bg_opa(settings_item_containers_[i], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(settings_item_containers_[i], 0, 0);
+            lv_obj_set_style_pad_all(settings_item_containers_[i], 0, 0);
+            lv_obj_set_scrollbar_mode(settings_item_containers_[i], LV_SCROLLBAR_MODE_OFF);
+            lv_obj_set_flex_flow(settings_item_containers_[i], LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_flex_align(settings_item_containers_[i], LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+            settings_item_labels_[i] = lv_label_create(settings_item_containers_[i]);
+            if (text_font) lv_obj_set_style_text_font(settings_item_labels_[i], text_font, 0);
+            lv_obj_set_style_text_color(settings_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
+
+            // 单横线下划线指示 (高1px, 纯白)
+            settings_item_lines_[i] = lv_obj_create(settings_item_containers_[i]);
+            lv_obj_set_size(settings_item_lines_[i], 120, 1);
+            lv_obj_set_style_bg_color(settings_item_lines_[i], lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_bg_opa(settings_item_lines_[i], LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(settings_item_lines_[i], 0, 0);
+            lv_obj_set_style_radius(settings_item_lines_[i], 0, 0);
+            lv_obj_set_style_margin_top(settings_item_lines_[i], 1, 0);
+            lv_obj_set_scrollbar_mode(settings_item_lines_[i], LV_SCROLLBAR_MODE_OFF);
+            lv_obj_add_flag(settings_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
+
+            lv_obj_add_flag(settings_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // 10. 真实 FFT 频谱 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
         if (!wave_timer_) {
             wave_timer_ = lv_timer_create([](lv_timer_t* timer) {
                 auto self = static_cast<AiPassportDisplay*>(lv_timer_get_user_data(timer));
@@ -316,7 +495,7 @@ public:
             }, 50, this);
         }
 
-        // 9. 确保底部栏默认隐藏，保持纯粹极简
+        // 11. 确保底部栏默认隐藏，保持纯粹极简
         if (bottom_bar_) {
             lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -390,11 +569,13 @@ public:
         RenderIdleLine();
     }
 
+    // ================== 飞书网关配对弹窗 ==================
     void ShowGatewayList(const std::vector<FeishuGateway>& gateways) {
         DisplayLockGuard lock(this);
+        HideProjectList();
+        HideSettingsList();
         cached_gateways_ = gateways;
         selected_gateway_index_ = 0;
-        // 如果候选中有此前配对过的历史网关，优先聚焦该项
         for (size_t i = 0; i < cached_gateways_.size(); i++) {
             if (cached_gateways_[i].is_paired) {
                 selected_gateway_index_ = (int)i;
@@ -423,7 +604,6 @@ public:
             esp_timer_create(&gw_timer_args, &gateway_hide_timer_);
         }
         esp_timer_stop(gateway_hide_timer_);
-        // 15 秒无操作自动退出网关弹窗，回到主待命时钟看板
         esp_timer_start_once(gateway_hide_timer_, 15000000);
     }
 
@@ -520,16 +700,13 @@ public:
                 const char* star = gw.is_paired ? "★ " : "";
                 if ((int)i == selected_gateway_index_) {
                     snprintf(buf, sizeof(buf), "▶ %s%s (%s)", star, gw.name.c_str(), gw.ip.c_str());
-                    // 选中项：白底黑字反色高亮
                     lv_obj_set_style_bg_color(gateway_item_btns_[i], lv_color_hex(0xFFFFFF), 0);
                     lv_obj_set_style_bg_opa(gateway_item_btns_[i], LV_OPA_COVER, 0);
                     lv_obj_set_style_border_color(gateway_item_btns_[i], lv_color_hex(0xFFFFFF), 0);
                     lv_obj_set_style_text_color(gateway_item_labels_[i], lv_color_hex(0x000000), 0);
-                    // 自动将选中项滚动至可视区域
                     lv_obj_scroll_to_view(gateway_item_btns_[i], LV_ANIM_ON);
                 } else {
                     snprintf(buf, sizeof(buf), "  %s%s (%s)", star, gw.name.c_str(), gw.ip.c_str());
-                    // 未选中项：黑底灰框白字
                     lv_obj_set_style_bg_color(gateway_item_btns_[i], lv_color_hex(0x000000), 0);
                     lv_obj_set_style_bg_opa(gateway_item_btns_[i], LV_OPA_COVER, 0);
                     lv_obj_set_style_border_color(gateway_item_btns_[i], lv_color_hex(0x666666), 0);
@@ -538,6 +715,265 @@ public:
                 lv_label_set_text(gateway_item_labels_[i], buf);
             } else {
                 lv_obj_add_flag(gateway_item_btns_[i], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    }
+
+    // ================== 项目切换弹窗 (单横线下划线指示) ==================
+    void ShowProjectList(const std::vector<std::string>& projects, const std::string& current_project) {
+        DisplayLockGuard lock(this);
+        HideGatewayList();
+        HideSettingsList();
+        cached_projects_ = projects;
+        current_project_name_ = current_project;
+        selected_project_index_ = 0;
+        for (size_t i = 0; i < cached_projects_.size(); i++) {
+            if (cached_projects_[i] == current_project_name_) {
+                selected_project_index_ = (int)i;
+                break;
+            }
+        }
+        if (project_modal_) {
+            lv_obj_remove_flag(project_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+        ResetProjectHideTimer();
+        UpdateProjectListUI();
+    }
+
+    void ResetProjectHideTimer() {
+        if (!project_hide_timer_) {
+            esp_timer_create_args_t p_timer_args = {
+                .callback = [](void* arg) {
+                    auto self = static_cast<AiPassportDisplay*>(arg);
+                    self->HideProjectList();
+                },
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "proj_hide_timer",
+                .skip_unhandled_events = true
+            };
+            esp_timer_create(&p_timer_args, &project_hide_timer_);
+        }
+        esp_timer_stop(project_hide_timer_);
+        esp_timer_start_once(project_hide_timer_, 15000000);
+    }
+
+    void HideProjectList() {
+        DisplayLockGuard lock(this);
+        if (project_hide_timer_) {
+            esp_timer_stop(project_hide_timer_);
+        }
+        if (project_modal_) {
+            lv_obj_add_flag(project_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    bool IsProjectListVisible() const {
+        if (!project_modal_) return false;
+        return !lv_obj_has_flag(project_modal_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    void MoveProjectSelectionUp() {
+        DisplayLockGuard lock(this);
+        if (cached_projects_.empty()) return;
+        ResetProjectHideTimer();
+        if (selected_project_index_ > 0) {
+            selected_project_index_--;
+            UpdateProjectListUI();
+        }
+    }
+
+    void MoveProjectSelectionDown() {
+        DisplayLockGuard lock(this);
+        if (cached_projects_.empty()) return;
+        ResetProjectHideTimer();
+        if (selected_project_index_ < (int)cached_projects_.size() - 1) {
+            selected_project_index_++;
+            UpdateProjectListUI();
+        }
+    }
+
+    std::string GetSelectedProjectName() const {
+        if (selected_project_index_ >= 0 && selected_project_index_ < (int)cached_projects_.size()) {
+            return cached_projects_[selected_project_index_];
+        }
+        return "";
+    }
+
+    void UpdateProjectListUI() {
+        if (!project_modal_) return;
+
+        if (cached_projects_.empty()) {
+            lv_label_set_text(project_sub_label_, "⚠️ 暂无可用项目");
+            for (size_t i = 0; i < kMaxProjectItems; i++) {
+                if (project_item_containers_[i]) {
+                    lv_obj_add_flag(project_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
+                }
+            }
+            return;
+        }
+
+        lv_label_set_text(project_sub_label_, "▲/▼移动  OK切换  长按退出");
+
+        if (selected_project_index_ >= (int)cached_projects_.size()) {
+            selected_project_index_ = (int)cached_projects_.size() - 1;
+        }
+        if (selected_project_index_ < 0) {
+            selected_project_index_ = 0;
+        }
+
+        for (size_t i = 0; i < kMaxProjectItems; i++) {
+            if (!project_item_containers_[i]) continue;
+            if (i < cached_projects_.size()) {
+                lv_obj_remove_flag(project_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
+                const auto& proj = cached_projects_[i];
+
+                char buf[64];
+                if (proj == current_project_name_) {
+                    snprintf(buf, sizeof(buf), "%s (当前)", proj.c_str());
+                } else {
+                    snprintf(buf, sizeof(buf), "%s", proj.c_str());
+                }
+                lv_label_set_text(project_item_labels_[i], buf);
+
+                if ((int)i == selected_project_index_) {
+                    lv_obj_remove_flag(project_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_scroll_to_view(project_item_containers_[i], LV_ANIM_ON);
+                } else {
+                    lv_obj_add_flag(project_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
+                }
+            } else {
+                lv_obj_add_flag(project_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    }
+
+    // ================== 系统设置弹窗 (单横线下划线指示) ==================
+    void ShowSettingsList() {
+        DisplayLockGuard lock(this);
+        HideGatewayList();
+        HideProjectList();
+        selected_settings_index_ = 0;
+        if (settings_modal_) {
+            lv_obj_remove_flag(settings_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+        ResetSettingsHideTimer();
+        UpdateSettingsListUI();
+    }
+
+    void ResetSettingsHideTimer() {
+        if (!settings_hide_timer_) {
+            esp_timer_create_args_t s_timer_args = {
+                .callback = [](void* arg) {
+                    auto self = static_cast<AiPassportDisplay*>(arg);
+                    self->HideSettingsList();
+                },
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "sett_hide_timer",
+                .skip_unhandled_events = true
+            };
+            esp_timer_create(&s_timer_args, &settings_hide_timer_);
+        }
+        esp_timer_stop(settings_hide_timer_);
+        esp_timer_start_once(settings_hide_timer_, 15000000);
+    }
+
+    void HideSettingsList() {
+        DisplayLockGuard lock(this);
+        if (settings_hide_timer_) {
+            esp_timer_stop(settings_hide_timer_);
+        }
+        if (settings_modal_) {
+            lv_obj_add_flag(settings_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    bool IsSettingsListVisible() const {
+        if (!settings_modal_) return false;
+        return !lv_obj_has_flag(settings_modal_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    void MoveSettingsSelectionUp() {
+        DisplayLockGuard lock(this);
+        ResetSettingsHideTimer();
+        if (selected_settings_index_ > 0) {
+            selected_settings_index_--;
+            UpdateSettingsListUI();
+        }
+    }
+
+    void MoveSettingsSelectionDown() {
+        DisplayLockGuard lock(this);
+        ResetSettingsHideTimer();
+        if (selected_settings_index_ < (int)kMaxSettingsItems - 1) {
+            selected_settings_index_++;
+            UpdateSettingsListUI();
+        }
+    }
+
+    int GetSelectedSettingsIndex() const {
+        return selected_settings_index_;
+    }
+
+    void UpdateSettingsListUI() {
+        if (!settings_modal_) return;
+
+        static const char* kSettingsTitles[kMaxSettingsItems] = {
+            "亮度调节",
+            "音量调节",
+            "主题配置 (反色)",
+            "服务端配置",
+            "网络配网",
+            "设备信息",
+            "重启设备"
+        };
+
+        lv_label_set_text(settings_sub_label_, "▲/▼移动  OK确认  长按退出");
+
+        for (size_t i = 0; i < kMaxSettingsItems; i++) {
+            if (!settings_item_containers_[i]) continue;
+            lv_obj_remove_flag(settings_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(settings_item_labels_[i], kSettingsTitles[i]);
+
+            if ((int)i == selected_settings_index_) {
+                lv_obj_remove_flag(settings_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_scroll_to_view(settings_item_containers_[i], LV_ANIM_ON);
+            } else {
+                lv_obj_add_flag(settings_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    }
+
+    bool IsAnyMenuVisible() const {
+        return IsGatewayListVisible() || IsProjectListVisible() || IsSettingsListVisible();
+    }
+
+    void HideAllMenus() {
+        HideGatewayList();
+        HideProjectList();
+        HideSettingsList();
+    }
+
+    // 硬件级反色切换黑白主题
+    void ToggleThemeInvert() {
+        DisplayLockGuard lock(this);
+        is_theme_inverted_ = !is_theme_inverted_;
+        if (panel_) {
+            esp_lcd_panel_invert_color(panel_, is_theme_inverted_ ? !DISPLAY_INVERT_COLOR : DISPLAY_INVERT_COLOR);
+        }
+        Settings settings("display", true);
+        settings.SetInt("invert_color", is_theme_inverted_ ? 1 : 0);
+        ShowNotification(is_theme_inverted_ ? "[已切换: 白底黑字]" : "[已切换: 黑底白字]", 1500);
+    }
+
+    void ApplySavedThemeInvert() {
+        Settings settings("display", false);
+        int inv = settings.GetInt("invert_color", 0);
+        if (inv == 1) {
+            is_theme_inverted_ = true;
+            if (panel_) {
+                esp_lcd_panel_invert_color(panel_, !DISPLAY_INVERT_COLOR);
             }
         }
     }
@@ -586,6 +1022,8 @@ private:
     esp_timer_handle_t record_timer_ = nullptr;
     bool is_in_standby_clock_ = false;
     uint32_t wave_frame_ = 0;
+    std::vector<std::string> last_projects_;
+    std::string current_project_;
 
     bool CheckAndAbortSpeaking() {
         auto& app = Application::GetInstance();
@@ -605,7 +1043,7 @@ private:
 
     void EnterOrRefreshStandbyClock() {
         if (!display_) return;
-        if (display_->IsGatewayListVisible()) return;
+        if (display_->IsAnyMenuVisible()) return;
         is_in_standby_clock_ = true;
 
         time_t now = time(NULL);
@@ -769,6 +1207,108 @@ private:
         }
     }
 
+    void CycleBrightness() {
+        if (current_brightness_ >= 100) {
+            current_brightness_ = 20;
+        } else {
+            current_brightness_ += 20;
+            if (current_brightness_ > 100) current_brightness_ = 100;
+        }
+        GetBacklight()->SetBrightness(current_brightness_);
+        if (display_) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "[屏幕亮度: %d%%]", current_brightness_);
+            display_->ShowNotification(buf, 1500);
+        }
+    }
+
+    void CycleVolume() {
+        auto codec = GetAudioCodec();
+        int vol = codec->output_volume();
+        if (vol >= 100) {
+            vol = 20;
+        } else {
+            vol += 20;
+            if (vol > 100) vol = 100;
+        }
+        codec->SetOutputVolume(vol);
+        if (display_) {
+            display_->ShowVolumeBottom(vol);
+        }
+    }
+
+    void ExecuteSettingItem(int index) {
+        switch (index) {
+            case 0: // 亮度调节
+                CycleBrightness();
+                break;
+            case 1: // 音量调节
+                CycleVolume();
+                break;
+            case 2: // 主题配置 (反色)
+                if (display_) {
+                    display_->ToggleThemeInvert();
+                }
+                break;
+            case 3: // 服务端配置
+                if (display_) {
+                    display_->HideSettingsList();
+                    auto& app = Application::GetInstance();
+                    auto gateways = app.GetDiscoveredFeishuGateways();
+                    display_->ShowGatewayList(gateways);
+                }
+                break;
+            case 4: // 网络配网
+                if (display_) {
+                    display_->HideSettingsList();
+                    display_->ShowNotification("[进入热点配网模式...]", 3000);
+                }
+                EnterWifiConfigMode();
+                break;
+            case 5: { // 设备信息
+                if (display_) {
+                    display_->HideSettingsList();
+                }
+                auto& app = Application::GetInstance();
+                auto& wifi = WifiManager::GetInstance();
+                std::string ip = wifi.GetIpAddress();
+                if (ip.empty()) ip = "未分配";
+                bool connected = app.IsFeishuConnected();
+                std::string gw = app.GetFeishuGatewayIp();
+                int battery_level = -1;
+                int battery_mv = -1;
+                if (battery_ && battery_->IsPresent()) {
+                    battery_level = battery_->GetBatteryLevel();
+                    battery_mv = battery_->GetBatteryVoltageMv();
+                }
+                std::string info = "IP: " + ip;
+                if (connected) {
+                    info += "\n控制台: 已连接 (" + gw + ")";
+                } else {
+                    info += "\n控制台: 未连接";
+                }
+                if (battery_level >= 0) {
+                    info += "\n电量: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
+                }
+                if (display_) {
+                    display_->ShowNotification(info.c_str(), 4500);
+                }
+                break;
+            }
+            case 6: // 重启设备
+                if (display_) {
+                    display_->HideSettingsList();
+                    display_->ShowNotification("[正在重启设备...]", 2000);
+                }
+                Application::GetInstance().Schedule([]() {
+                    Application::GetInstance().Reboot();
+                });
+                break;
+            default:
+                break;
+        }
+    }
+
     void ToggleChat() {
         auto& app = Application::GetInstance();
         if (app.GetDeviceState() == kDeviceStateStarting) {
@@ -829,16 +1369,37 @@ private:
         auto up = adc_button_[kAdcButtonUp];
         up->OnClick([this]() {
             TouchActivity("UP");
-            if (display_ && display_->IsGatewayListVisible()) {
-                display_->MoveGatewaySelectionUp();
-                return;
+            if (display_) {
+                if (display_->IsGatewayListVisible()) {
+                    display_->MoveGatewaySelectionUp();
+                    return;
+                }
+                if (display_->IsProjectListVisible()) {
+                    display_->MoveProjectSelectionUp();
+                    return;
+                }
+                if (display_->IsSettingsListVisible()) {
+                    display_->MoveSettingsSelectionUp();
+                    return;
+                }
             }
+
+            // 主界面短按 ▲ 键：呼出项目切换列表
             Application::GetInstance().Schedule([this]() {
-                // 音量键专心调节音量，不中断正在播报的语音
-                ChangeVolume(+10);
                 auto& app = Application::GetInstance();
                 if (app.IsFeishuConnected()) {
-                    app.SendFeishuButtonEvent("up", "short_press");
+                    app.RequestFeishuProjectList();
+                    if (display_) {
+                        if (!last_projects_.empty()) {
+                            display_->ShowProjectList(last_projects_, current_project_);
+                        } else {
+                            display_->ShowNotification("[正在获取项目列表...]", 1500);
+                        }
+                    }
+                } else {
+                    if (display_) {
+                        display_->ShowNotification("[飞书服务未连接]\n[请先连接服务]", 2000);
+                    }
                 }
             });
         });
@@ -873,16 +1434,25 @@ private:
         auto down = adc_button_[kAdcButtonDown];
         down->OnClick([this]() {
             TouchActivity("DOWN");
-            if (display_ && display_->IsGatewayListVisible()) {
-                display_->MoveGatewaySelectionDown();
-                return;
+            if (display_) {
+                if (display_->IsGatewayListVisible()) {
+                    display_->MoveGatewaySelectionDown();
+                    return;
+                }
+                if (display_->IsProjectListVisible()) {
+                    display_->MoveProjectSelectionDown();
+                    return;
+                }
+                if (display_->IsSettingsListVisible()) {
+                    display_->MoveSettingsSelectionDown();
+                    return;
+                }
             }
+
+            // 主界面短按 ▼ 键：呼出系统设置菜单
             Application::GetInstance().Schedule([this]() {
-                // 音量键专心调节音量，不中断正在播报的语音
-                ChangeVolume(-10);
-                auto& app = Application::GetInstance();
-                if (app.IsFeishuConnected()) {
-                    app.SendFeishuButtonEvent("down", "short_press");
+                if (display_) {
+                    display_->ShowSettingsList();
                 }
             });
         });
@@ -935,10 +1505,31 @@ private:
             if (is_push_to_talk_active_) {
                 return;
             }
-            if (display_ && display_->IsGatewayListVisible()) {
-                int idx = display_->GetSelectedGatewayIndex();
-                display_->SelectAndConnectGateway(idx);
-                return;
+            if (display_) {
+                if (display_->IsGatewayListVisible()) {
+                    int idx = display_->GetSelectedGatewayIndex();
+                    display_->SelectAndConnectGateway(idx);
+                    return;
+                }
+                if (display_->IsProjectListVisible()) {
+                    std::string selected_proj = display_->GetSelectedProjectName();
+                    display_->HideProjectList();
+                    if (!selected_proj.empty()) {
+                        current_project_ = selected_proj;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "[已切换至项目:\n%s]", selected_proj.c_str());
+                        display_->ShowNotification(buf, 1500);
+                        Application::GetInstance().Schedule([selected_proj]() {
+                            Application::GetInstance().SwitchFeishuProject(selected_proj);
+                        });
+                    }
+                    return;
+                }
+                if (display_->IsSettingsListVisible()) {
+                    int idx = display_->GetSelectedSettingsIndex();
+                    ExecuteSettingItem(idx);
+                    return;
+                }
             }
             Application::GetInstance().Schedule([this]() {
                 // OK 键作为主功能键，专职执行打断播报
@@ -970,10 +1561,10 @@ private:
         });
         ok->OnLongPress([this]() {
             TouchActivity("OK_LONG");
-            if (display_ && display_->IsGatewayListVisible()) {
-                display_->HideGatewayList();
+            if (display_ && display_->IsAnyMenuVisible()) {
+                display_->HideAllMenus();
                 if (display_) {
-                    display_->ShowNotification("[已退出网关选择]", 1500);
+                    display_->ShowNotification("[已返回主界面]", 1200);
                 }
                 return;
             }
@@ -1096,6 +1687,9 @@ public:
 
         Settings settings("display", true);
         settings.SetString("theme", "dark");
+        if (display_) {
+            display_->ApplySavedThemeInvert();
+        }
 
         last_activity_time_ = esp_timer_get_time();
         esp_timer_create_args_t dim_timer_args = {
@@ -1150,6 +1744,15 @@ public:
                 TouchActivity();
             } else {
                 display_->HideGatewayList();
+            }
+        });
+
+        // 监听飞书服务端返回的项目列表
+        Application::GetInstance().SetOnFeishuProjectsReceived([this](const std::vector<std::string>& projects, const std::string& current) {
+            last_projects_ = projects;
+            current_project_ = current;
+            if (display_ && display_->IsProjectListVisible()) {
+                display_->ShowProjectList(projects, current);
             }
         });
     }

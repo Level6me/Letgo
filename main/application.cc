@@ -543,6 +543,9 @@ void Application::InitializeProtocol() {
     if (on_feishu_gateways_changed_) {
         feishu->SetOnGatewaysChanged(on_feishu_gateways_changed_);
     }
+    if (on_feishu_projects_received_) {
+        feishu->SetOnProjectListReceived(on_feishu_projects_received_);
+    }
     protocol_ = std::move(feishu);
 
     protocol_->OnConnected([this]() {
@@ -1470,6 +1473,28 @@ void Application::SetOnFeishuGatewaysChanged(std::function<void(const std::vecto
     if (protocol_) {
         auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
         feishu->SetOnGatewaysChanged(on_feishu_gateways_changed_);
+    }
+}
+
+void Application::RequestFeishuProjectList() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        feishu->RequestProjectList();
+    }
+}
+
+void Application::SwitchFeishuProject(const std::string& project_name) {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        feishu->SwitchProject(project_name);
+    }
+}
+
+void Application::SetOnFeishuProjectsReceived(std::function<void(const std::vector<std::string>&, const std::string&)> cb) {
+    on_feishu_projects_received_ = std::move(cb);
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        feishu->SetOnProjectListReceived(on_feishu_projects_received_);
     }
 }
 

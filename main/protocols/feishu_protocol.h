@@ -51,6 +51,11 @@ public:
     void ConnectToGateway(const std::string& ip, int port);
     void SetOnGatewaysChanged(std::function<void(const std::vector<FeishuGateway>&)> cb);
 
+    // 飞书项目列表与切换管理
+    void RequestProjectList();
+    void SwitchProject(const std::string& project_name);
+    void SetOnProjectListReceived(std::function<void(const std::vector<std::string>&, const std::string&)> cb);
+
 private:
     std::unique_ptr<WebSocket> websocket_;
     std::string gateway_ip_;
@@ -65,6 +70,7 @@ private:
     std::vector<FeishuGateway> discovered_gateways_;
     mutable std::mutex gateways_mutex_;
     std::function<void(const std::vector<FeishuGateway>&)> on_gateways_changed_;
+    std::function<void(const std::vector<std::string>&, const std::string&)> on_project_list_received_;
 
     TaskHandle_t discovery_task_handle_ = nullptr;
     esp_timer_handle_t ping_timer_ = nullptr;
