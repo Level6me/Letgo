@@ -412,7 +412,7 @@ public:
         lv_obj_set_style_bg_opa(project_sep_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(project_sep_, 0, 0);
         lv_obj_set_style_margin_top(project_sep_, 2, 0);
-        lv_obj_set_style_margin_bottom(p_sep ? 4 : 4, 0);
+        lv_obj_set_style_margin_bottom(project_sep_, 4, 0);
 
         project_list_box_ = lv_obj_create(project_modal_);
         lv_obj_set_size(project_list_box_, 216, 160);
@@ -488,7 +488,7 @@ public:
         lv_obj_set_style_bg_opa(settings_sep_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(settings_sep_, 0, 0);
         lv_obj_set_style_margin_top(settings_sep_, 2, 0);
-        lv_obj_set_style_margin_bottom(s_sep ? 4 : 4, 0);
+        lv_obj_set_style_margin_bottom(settings_sep_, 4, 0);
 
         settings_list_box_ = lv_obj_create(settings_modal_);
         lv_obj_set_size(settings_list_box_, 216, 160);
