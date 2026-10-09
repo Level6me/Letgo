@@ -241,10 +241,14 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         uint16_t rms = static_cast<uint16_t>(sqrt(sum_squares / n));
         input_energy_rms_.store(rms, std::memory_order_relaxed);
 
-        uint8_t bands[15];
-        AudioSpectrum::Analyze(data.data(), data.size(), bands, decay_bands_);
-        for (int i = 0; i < 15; i++) {
-            spectrum_bands_[i].store(bands[i], std::memory_order_relaxed);
+        static uint8_t input_spectrum_decimate = 0;
+        if (++input_spectrum_decimate >= 5) {
+            input_spectrum_decimate = 0;
+            uint8_t bands[15];
+            AudioSpectrum::Analyze(data.data(), data.size(), bands, decay_bands_);
+            for (int i = 0; i < 15; i++) {
+                spectrum_bands_[i].store(bands[i], std::memory_order_relaxed);
+            }
         }
     }
 

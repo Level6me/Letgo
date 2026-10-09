@@ -826,6 +826,10 @@ void Application::HandleToggleChatEvent() {
     } else if (state == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonNone);
     } else if (state == kDeviceStateListening) {
+        if (IsFeishuConnected()) {
+            StopListening();
+            return;
+        }
         protocol_->CloseAudioChannel();
     }
 }

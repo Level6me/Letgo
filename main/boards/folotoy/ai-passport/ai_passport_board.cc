@@ -1186,6 +1186,10 @@ private:
     uint32_t wave_frame_ = 0;
     std::vector<std::string> last_projects_;
     std::string current_project_;
+    int64_t ok_press_down_time_ = 0;
+    bool ok_speech_aborted_ = false;
+    bool ok_stop_listening_on_down_ = false;
+    int64_t last_ok_tap_time_ = 0;
 
     bool CheckAndAbortSpeaking() {
         auto& app = Application::GetInstance();
@@ -1248,13 +1252,15 @@ private:
             esp_timer_create_args_t timer_args = {
                 .callback = [](void* arg) {
                     auto self = static_cast<AiPassportBoard*>(arg);
-                    if (!self->is_push_to_talk_active_) {
+                    auto cur_state = Application::GetInstance().GetDeviceState();
+                    if (!self->is_push_to_talk_active_ && cur_state != kDeviceStateListening) {
                         return;
                     }
                     int64_t elapsed_us = esp_timer_get_time() - self->record_start_time_;
                     int elapsed_sec = (int)(elapsed_us / 1000000);
                     Application::GetInstance().Schedule([self, elapsed_sec, elapsed_us]() {
-                        if (!self->is_push_to_talk_active_) {
+                        auto state = Application::GetInstance().GetDeviceState();
+                        if (!self->is_push_to_talk_active_ && state != kDeviceStateListening) {
                             return;
                         }
                         if (elapsed_sec >= 60) {
@@ -1286,13 +1292,12 @@ private:
     }
 
     void StopPushToTalk(int64_t elapsed_us) {
-        if (!is_push_to_talk_active_) {
+        auto& app = Application::GetInstance();
+        if (!is_push_to_talk_active_ && app.GetDeviceState() != kDeviceStateListening) {
             return;
         }
         is_push_to_talk_active_ = false;
         StopRecordTimer();
-
-        auto& app = Application::GetInstance();
 
         // 录音结束，立即恢复屏幕正中心水平直线
         if (display_) {
@@ -1520,7 +1525,7 @@ private:
         adc_cfg.button_index = kAdcButtonOk;      // OK:   ~595 mV
         adc_cfg.min = BSP_ADC_BUTTON_OK_MIN;
         adc_cfg.max = BSP_ADC_BUTTON_OK_MAX;
-        adc_button_[kAdcButtonOk] = new AdcButton(adc_cfg, 350); // 350ms 迅速触发对讲长按
+        adc_button_[kAdcButtonOk] = new AdcButton(adc_cfg);
 
         // 按钮事件绑定与交互优化
         auto up = adc_button_[kAdcButtonUp];
@@ -1653,12 +1658,83 @@ private:
         });
 
         auto ok = adc_button_[kAdcButtonOk];
-        ok->OnClick([this]() {
-            TouchActivity("OK");
-            if (is_push_to_talk_active_) {
+        ok->OnPressDown([this]() {
+            TouchActivity("OK_DOWN");
+            ok_press_down_time_ = esp_timer_get_time();
+            ok_speech_aborted_ = false;
+            ok_stop_listening_on_down_ = false;
+
+            // 1. 如果菜单开启，按下仅作为触摸激活，不触发对讲
+            if (display_ && display_->IsAnyMenuVisible()) {
                 return;
             }
-            if (display_) {
+
+            auto& app = Application::GetInstance();
+            auto state = app.GetDeviceState();
+
+            // 2. 如果正在播放 TTS 语音，按下立即打断 (Barge-in)
+            if (state == kDeviceStateSpeaking) {
+                ESP_LOGI(TAG, "Barge-in triggered by OK press down!");
+                app.AbortSpeaking(kAbortReasonNone);
+                app.GetAudioService().ResetDecoder();
+                if (display_) {
+                    display_->ShowNotification("Barge-in", 1200);
+                    display_->SetStatus("[待命]");
+                    display_->ShowIdleStraightLine();
+                }
+                ok_speech_aborted_ = true;
+                return;
+            }
+
+            // 3. 如果当前已经在录音中，用户再次按下 OK 键意味着【停止录音并发送】（单击切换对话模式下的第二次点击）
+            if (state == kDeviceStateListening) {
+                ESP_LOGI(TAG, "OK pressed while listening: Stopping recording...");
+                ok_stop_listening_on_down_ = true;
+                int64_t elapsed_us = esp_timer_get_time() - record_start_time_;
+                StopPushToTalk(elapsed_us);
+                return;
+            }
+
+            // 4. 如果当前设备处于待命状态，按下瞬间立即启动录音！
+            if (state == kDeviceStateIdle || state == kDeviceStateStarting) {
+                is_push_to_talk_active_ = true;
+                wave_frame_ = 0;
+                record_start_time_ = esp_timer_get_time();
+                if (display_) {
+                    display_->SetRecording(true);
+                    display_->SetStatus("[录音中 00:00]");
+                }
+                StartRecordTimer();
+                Application::GetInstance().Schedule([]() {
+                    Application::GetInstance().StartListening();
+                });
+            }
+        });
+
+        ok->OnPressUp([this]() {
+            TouchActivity("OK_UP");
+            int64_t now = esp_timer_get_time();
+            int64_t duration_ms = (now - ok_press_down_time_) / 1000;
+
+            // 如果刚才打断了语音播报，抬手不做任何额外处理
+            if (ok_speech_aborted_) {
+                ok_speech_aborted_ = false;
+                return;
+            }
+
+            // 如果刚才在按下时触发了停止录音，抬手不做任何处理
+            if (ok_stop_listening_on_down_) {
+                ok_stop_listening_on_down_ = false;
+                return;
+            }
+
+            // 菜单可见时的选择确认逻辑
+            if (display_ && display_->IsAnyMenuVisible()) {
+                if (duration_ms > 1200) {
+                    display_->HideAllMenus();
+                    display_->ShowNotification("Main screen", 1200);
+                    return;
+                }
                 if (display_->IsGatewayListVisible()) {
                     int idx = display_->GetSelectedGatewayIndex();
                     display_->SelectAndConnectGateway(idx);
@@ -1684,73 +1760,67 @@ private:
                     return;
                 }
             }
-            Application::GetInstance().Schedule([this]() {
-                // OK 键作为主功能键，专职执行打断播报
-                if (CheckAndAbortSpeaking()) {
-                    return;
+
+            auto& app = Application::GetInstance();
+
+            // 若有未连接的飞书网关，优先连接
+            if (app.HasPendingFeishuGateway()) {
+                if (is_push_to_talk_active_ || app.GetDeviceState() == kDeviceStateListening) {
+                    is_push_to_talk_active_ = false;
+                    StopRecordTimer();
+                    if (app.GetDeviceState() == kDeviceStateListening) {
+                        app.StopListening();
+                    }
+                    if (display_) {
+                        display_->SetRecording(false);
+                        display_->ShowIdleStraightLine();
+                    }
                 }
-                auto& app = Application::GetInstance();
-                if (app.HasPendingFeishuGateway()) {
-                    app.ConnectSelectedFeishuGateway();
-                } else {
-                    ToggleChat();
-                }
-            });
-        });
-        ok->OnDoubleClick([this]() {
-            TouchActivity("OK_DOUBLE");
-            Application::GetInstance().Schedule([this]() {
-                auto& app = Application::GetInstance();
-                if (CheckAndAbortSpeaking()) {
-                    return;
-                }
-                if (display_) {
-                    display_->ShowNotification("Requesting replay...", 1500);
-                }
-                if (app.IsFeishuConnected()) {
-                    app.SendFeishuButtonEvent("ok", "double_click");
-                }
-            });
-        });
-        ok->OnLongPress([this]() {
-            TouchActivity("OK_LONG");
-            if (display_ && display_->IsAnyMenuVisible()) {
-                display_->HideAllMenus();
-                if (display_) {
-                    auto& app = Application::GetInstance();
-                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
-                    display_->ShowNotification("Main screen", 1200);
-                }
+                app.ConnectSelectedFeishuGateway();
                 return;
             }
-            auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateSpeaking) {
-                app.AbortSpeaking(kAbortReasonNone);
-                app.GetAudioService().ResetDecoder();
-            }
-            is_push_to_talk_active_ = true;
-            wave_frame_ = 0;
-            record_start_time_ = esp_timer_get_time();
-            if (display_) {
-                display_->SetRecording(true);
-            }
 
-            Application::GetInstance().Schedule([this]() {
-                auto& app = Application::GetInstance();
-                app.StartListening();
-                if (display_) {
-                    display_->SetStatus("[录音中 00:00]");
-                }
-                StartRecordTimer();
-            });
-        });
-        ok->OnPressUp([this]() {
-            TouchActivity("OK_UP");
+            // 对讲录音判定：
             if (is_push_to_talk_active_) {
-                int64_t elapsed_us = esp_timer_get_time() - record_start_time_;
-                Application::GetInstance().Schedule([this, elapsed_us]() {
+                // 检查是否为快速双击（双击请求重播上条）
+                if (duration_ms < 350) {
+                    int64_t interval_since_last_tap = (now - last_ok_tap_time_) / 1000;
+                    last_ok_tap_time_ = now;
+                    if (interval_since_last_tap > 50 && interval_since_last_tap < 400) {
+                        // 判定为双击：取消录音并触发重播
+                        is_push_to_talk_active_ = false;
+                        StopRecordTimer();
+                        if (app.GetDeviceState() == kDeviceStateListening) {
+                            app.StopListening();
+                        }
+                        if (display_) {
+                            display_->SetRecording(false);
+                            display_->ShowIdleStraightLine();
+                            display_->ShowNotification("Requesting replay...", 1500);
+                        }
+                        if (app.IsFeishuConnected()) {
+                            app.SendFeishuButtonEvent("ok", "double_click");
+                        }
+                        last_ok_tap_time_ = 0;
+                        return;
+                    }
+                }
+
+                if (duration_ms < 350) {
+                    // 【短按点击 / Quick Tap】（完美兼容原项目 ToggleChat 体验！）
+                    // 用户轻点了一下 OK 键：保持录音状态，用户可从容讲话，说完再次点击 OK 键结束
+                    is_push_to_talk_active_ = false; // 脱离长按按住模式，进入持续点击对话模式
+                    if (display_) {
+                        display_->SetStatus("[录音中 (点击OK结束)]");
+                    }
+                    ESP_LOGI(TAG, "OK quick tap: Keep recording in toggle mode (duration %lld ms)", duration_ms);
+                } else {
+                    // 【长按对讲 / PTT: Push-to-Talk】（纯正对讲机体验！）
+                    // 用户按住说话，松手立即结束对讲并发送给飞书
+                    int64_t elapsed_us = now - record_start_time_;
+                    ESP_LOGI(TAG, "OK long press released: Stop PTT recording (duration %lld ms)", duration_ms);
                     StopPushToTalk(elapsed_us);
-                });
+                }
             }
         });
     }
