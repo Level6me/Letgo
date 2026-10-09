@@ -1227,15 +1227,10 @@ private:
                      uptime_sec / 3600, (uptime_sec % 3600) / 60, uptime_sec % 60);
         }
 
-        int battery_level = -1;
-        if (battery_ && battery_->IsPresent()) {
-            battery_level = battery_->GetBatteryLevel();
-        }
-
         auto& app = Application::GetInstance();
         bool feishu_online = app.IsFeishuConnected();
 
-        char status_buf[32];
+        char status_buf[64];
         snprintf(status_buf, sizeof(status_buf), "%s  %s",
                  time_buf, feishu_online ? "已连接" : "离线");
 
