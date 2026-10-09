@@ -61,14 +61,15 @@ private:
     bool was_active_wave_ = false;
     std::atomic<bool> is_recording_ptt_{false};
 
-    // 飞书网关配对选择弹窗
+    // 飞书网关配对选择弹窗 (极简单横线下划线选中指示)
     lv_obj_t* gateway_modal_ = nullptr;
     lv_obj_t* gateway_title_label_ = nullptr;
     lv_obj_t* gateway_sub_label_ = nullptr;
     lv_obj_t* gateway_list_box_ = nullptr;
     static constexpr size_t kMaxGatewayItems = 5;
-    lv_obj_t* gateway_item_btns_[kMaxGatewayItems] = {nullptr};
+    lv_obj_t* gateway_item_containers_[kMaxGatewayItems] = {nullptr};
     lv_obj_t* gateway_item_labels_[kMaxGatewayItems] = {nullptr};
+    lv_obj_t* gateway_item_lines_[kMaxGatewayItems] = {nullptr};
     std::vector<FeishuGateway> cached_gateways_;
     int selected_gateway_index_ = 0;
     esp_timer_handle_t gateway_hide_timer_ = nullptr;
@@ -325,26 +326,31 @@ public:
         lv_obj_set_scrollbar_mode(gateway_list_box_, LV_SCROLLBAR_MODE_AUTO);
 
         for (size_t i = 0; i < kMaxGatewayItems; i++) {
-            gateway_item_btns_[i] = lv_obj_create(gateway_list_box_);
-            lv_obj_set_size(gateway_item_btns_[i], 200, 28);
-            lv_obj_set_style_radius(gateway_item_btns_[i], 4, 0);
-            lv_obj_set_style_pad_all(gateway_item_btns_[i], 2, 0);
-            lv_obj_set_style_border_width(gateway_item_btns_[i], 1, 0);
-            lv_obj_set_scrollbar_mode(gateway_item_btns_[i], LV_SCROLLBAR_MODE_OFF);
+            gateway_item_containers_[i] = lv_obj_create(gateway_list_box_);
+            lv_obj_set_size(gateway_item_containers_[i], 200, 26);
+            lv_obj_set_style_bg_opa(gateway_item_containers_[i], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(gateway_item_containers_[i], 0, 0);
+            lv_obj_set_style_pad_all(gateway_item_containers_[i], 0, 0);
+            lv_obj_set_scrollbar_mode(gateway_item_containers_[i], LV_SCROLLBAR_MODE_OFF);
+            lv_obj_set_flex_flow(gateway_item_containers_[i], LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_flex_align(gateway_item_containers_[i], LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-            gateway_item_labels_[i] = lv_label_create(gateway_item_btns_[i]);
+            gateway_item_labels_[i] = lv_label_create(gateway_item_containers_[i]);
             if (text_font) lv_obj_set_style_text_font(gateway_item_labels_[i], text_font, 0);
-            lv_obj_align(gateway_item_labels_[i], LV_ALIGN_LEFT_MID, 4, 0);
+            lv_obj_set_style_text_color(gateway_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
 
-            lv_obj_add_flag(gateway_item_btns_[i], LV_OBJ_FLAG_HIDDEN);
+            // 单横线下划线指示 (高1px, 纯白)
+            gateway_item_lines_[i] = lv_obj_create(gateway_item_containers_[i]);
+            lv_obj_set_size(gateway_item_lines_[i], 140, 1);
+            lv_obj_set_style_bg_color(gateway_item_lines_[i], lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_bg_opa(gateway_item_lines_[i], LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(gateway_item_lines_[i], 0, 0);
+            lv_obj_set_style_radius(gateway_item_lines_[i], 0, 0);
+            lv_obj_set_style_margin_top(gateway_item_lines_[i], 1, 0);
+            lv_obj_set_scrollbar_mode(gateway_item_lines_[i], LV_SCROLLBAR_MODE_OFF);
+            lv_obj_add_flag(gateway_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
 
-            lv_obj_add_event_cb(gateway_item_btns_[i], [](lv_event_t* e) {
-                auto display = static_cast<AiPassportDisplay*>(lv_event_get_user_data(e));
-                auto target = static_cast<lv_obj_t*>(lv_event_get_target(e));
-                int idx = (int)(intptr_t)lv_obj_get_user_data(target);
-                display->SelectAndConnectGateway(idx);
-            }, LV_EVENT_CLICKED, this);
-            lv_obj_set_user_data(gateway_item_btns_[i], (void*)(intptr_t)i);
+            lv_obj_add_flag(gateway_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
         }
 
         // 8. 项目切换选择弹窗 (单横线下划线极简指示)
@@ -632,8 +638,10 @@ public:
         ResetGatewayHideTimer();
         if (selected_gateway_index_ > 0) {
             selected_gateway_index_--;
-            UpdateGatewayListUI();
+        } else {
+            selected_gateway_index_ = (int)cached_gateways_.size() - 1; // 循环跳到最后一项
         }
+        UpdateGatewayListUI();
     }
 
     void MoveGatewaySelectionDown() {
@@ -642,8 +650,10 @@ public:
         ResetGatewayHideTimer();
         if (selected_gateway_index_ < (int)cached_gateways_.size() - 1) {
             selected_gateway_index_++;
-            UpdateGatewayListUI();
+        } else {
+            selected_gateway_index_ = 0; // 循环回到第一项
         }
+        UpdateGatewayListUI();
     }
 
     void SelectAndConnectGateway(int index) {
@@ -674,14 +684,14 @@ public:
         if (cached_gateways_.empty()) {
             lv_label_set_text(gateway_sub_label_, "🔍 搜索中... 请确认控制台已启动");
             for (size_t i = 0; i < kMaxGatewayItems; i++) {
-                if (gateway_item_btns_[i]) {
-                    lv_obj_add_flag(gateway_item_btns_[i], LV_OBJ_FLAG_HIDDEN);
+                if (gateway_item_containers_[i]) {
+                    lv_obj_add_flag(gateway_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
                 }
             }
             return;
         }
 
-        lv_label_set_text(gateway_sub_label_, "▲/▼选择 OK确认 长按OK退出");
+        lv_label_set_text(gateway_sub_label_, "▲/▼移动  OK配对  长按退出");
 
         if (selected_gateway_index_ >= (int)cached_gateways_.size()) {
             selected_gateway_index_ = (int)cached_gateways_.size() - 1;
@@ -691,30 +701,24 @@ public:
         }
 
         for (size_t i = 0; i < kMaxGatewayItems; i++) {
-            if (!gateway_item_btns_[i]) continue;
+            if (!gateway_item_containers_[i]) continue;
             if (i < cached_gateways_.size()) {
-                lv_obj_remove_flag(gateway_item_btns_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_remove_flag(gateway_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
                 const auto& gw = cached_gateways_[i];
 
                 char buf[64];
                 const char* star = gw.is_paired ? "★ " : "";
-                if ((int)i == selected_gateway_index_) {
-                    snprintf(buf, sizeof(buf), "▶ %s%s (%s)", star, gw.name.c_str(), gw.ip.c_str());
-                    lv_obj_set_style_bg_color(gateway_item_btns_[i], lv_color_hex(0xFFFFFF), 0);
-                    lv_obj_set_style_bg_opa(gateway_item_btns_[i], LV_OPA_COVER, 0);
-                    lv_obj_set_style_border_color(gateway_item_btns_[i], lv_color_hex(0xFFFFFF), 0);
-                    lv_obj_set_style_text_color(gateway_item_labels_[i], lv_color_hex(0x000000), 0);
-                    lv_obj_scroll_to_view(gateway_item_btns_[i], LV_ANIM_ON);
-                } else {
-                    snprintf(buf, sizeof(buf), "  %s%s (%s)", star, gw.name.c_str(), gw.ip.c_str());
-                    lv_obj_set_style_bg_color(gateway_item_btns_[i], lv_color_hex(0x000000), 0);
-                    lv_obj_set_style_bg_opa(gateway_item_btns_[i], LV_OPA_COVER, 0);
-                    lv_obj_set_style_border_color(gateway_item_btns_[i], lv_color_hex(0x666666), 0);
-                    lv_obj_set_style_text_color(gateway_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
-                }
+                snprintf(buf, sizeof(buf), "%s%s (%s)", star, gw.name.c_str(), gw.ip.c_str());
                 lv_label_set_text(gateway_item_labels_[i], buf);
+
+                if ((int)i == selected_gateway_index_) {
+                    lv_obj_remove_flag(gateway_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_scroll_to_view(gateway_item_containers_[i], LV_ANIM_ON);
+                } else {
+                    lv_obj_add_flag(gateway_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
+                }
             } else {
-                lv_obj_add_flag(gateway_item_btns_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(gateway_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
             }
         }
     }
@@ -779,8 +783,10 @@ public:
         ResetProjectHideTimer();
         if (selected_project_index_ > 0) {
             selected_project_index_--;
-            UpdateProjectListUI();
+        } else {
+            selected_project_index_ = (int)cached_projects_.size() - 1; // 循环跳到末项
         }
+        UpdateProjectListUI();
     }
 
     void MoveProjectSelectionDown() {
@@ -789,8 +795,10 @@ public:
         ResetProjectHideTimer();
         if (selected_project_index_ < (int)cached_projects_.size() - 1) {
             selected_project_index_++;
-            UpdateProjectListUI();
+        } else {
+            selected_project_index_ = 0; // 循环回到首项
         }
+        UpdateProjectListUI();
     }
 
     std::string GetSelectedProjectName() const {
@@ -899,8 +907,10 @@ public:
         ResetSettingsHideTimer();
         if (selected_settings_index_ > 0) {
             selected_settings_index_--;
-            UpdateSettingsListUI();
+        } else {
+            selected_settings_index_ = (int)kMaxSettingsItems - 1; // 循环跳到末项
         }
+        UpdateSettingsListUI();
     }
 
     void MoveSettingsSelectionDown() {
@@ -908,8 +918,10 @@ public:
         ResetSettingsHideTimer();
         if (selected_settings_index_ < (int)kMaxSettingsItems - 1) {
             selected_settings_index_++;
-            UpdateSettingsListUI();
+        } else {
+            selected_settings_index_ = 0; // 循环回到首项
         }
+        UpdateSettingsListUI();
     }
 
     int GetSelectedSettingsIndex() const {
@@ -1564,6 +1576,8 @@ private:
             if (display_ && display_->IsAnyMenuVisible()) {
                 display_->HideAllMenus();
                 if (display_) {
+                    auto& app = Application::GetInstance();
+                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
                     display_->ShowNotification("[已返回主界面]", 1200);
                 }
                 return;
@@ -1703,6 +1717,11 @@ public:
                     if (self->is_in_standby_clock_) {
                         self->TouchActivity();
                     }
+                    return;
+                }
+
+                // 若菜单正在显示，不触发时钟看板和休眠变暗
+                if (self->display_ && self->display_->IsAnyMenuVisible()) {
                     return;
                 }
 
