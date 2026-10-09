@@ -65,6 +65,7 @@ private:
     lv_obj_t* gateway_modal_ = nullptr;
     lv_obj_t* gateway_title_label_ = nullptr;
     lv_obj_t* gateway_sub_label_ = nullptr;
+    lv_obj_t* gateway_sep_ = nullptr;
     lv_obj_t* gateway_list_box_ = nullptr;
     static constexpr size_t kMaxGatewayItems = 5;
     lv_obj_t* gateway_item_containers_[kMaxGatewayItems] = {nullptr};
@@ -78,6 +79,7 @@ private:
     lv_obj_t* project_modal_ = nullptr;
     lv_obj_t* project_title_label_ = nullptr;
     lv_obj_t* project_sub_label_ = nullptr;
+    lv_obj_t* project_sep_ = nullptr;
     lv_obj_t* project_list_box_ = nullptr;
     static constexpr size_t kMaxProjectItems = 6;
     lv_obj_t* project_item_containers_[kMaxProjectItems] = {nullptr};
@@ -92,6 +94,7 @@ private:
     lv_obj_t* settings_modal_ = nullptr;
     lv_obj_t* settings_title_label_ = nullptr;
     lv_obj_t* settings_sub_label_ = nullptr;
+    lv_obj_t* settings_sep_ = nullptr;
     lv_obj_t* settings_list_box_ = nullptr;
     static constexpr size_t kMaxSettingsItems = 7;
     lv_obj_t* settings_item_containers_[kMaxSettingsItems] = {nullptr};
@@ -283,16 +286,32 @@ public:
             esp_timer_create(&vol_timer_args, &volume_hide_timer_);
         }
 
-        // 7. 飞书网关配对选择弹窗 (黑底白边，清晰列出可配对的飞书服务)
+        // 7. 状态栏与通知设置 (扩宽至 236px，居中对齐，支持自动循环跑马灯与换行)
+        if (status_bar_) {
+            lv_obj_set_width(status_bar_, 236);
+            lv_obj_align(status_bar_, LV_ALIGN_TOP_MID, 0, 2);
+        }
+        if (status_label_) {
+            lv_obj_set_width(status_label_, 232);
+            lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+            lv_obj_set_style_text_align(status_label_, LV_TEXT_ALIGN_CENTER, 0);
+        }
+        if (notification_label_) {
+            lv_obj_set_width(notification_label_, 232);
+            lv_label_set_long_mode(notification_label_, LV_LABEL_LONG_WRAP);
+            lv_obj_set_style_text_align(notification_label_, LV_TEXT_ALIGN_CENTER, 0);
+        }
+
+        // 8. 飞书网关配对选择弹窗 (宽228, 高260, 黑白高对比)
         gateway_modal_ = lv_obj_create(screen);
-        lv_obj_set_size(gateway_modal_, 224, 250);
+        lv_obj_set_size(gateway_modal_, 228, 260);
         lv_obj_align(gateway_modal_, LV_ALIGN_CENTER, 0, 0);
         lv_obj_set_style_bg_color(gateway_modal_, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(gateway_modal_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_color(gateway_modal_, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_border_width(gateway_modal_, 2, 0);
         lv_obj_set_style_radius(gateway_modal_, 8, 0);
-        lv_obj_set_style_pad_all(gateway_modal_, 8, 0);
+        lv_obj_set_style_pad_all(gateway_modal_, 6, 0);
         lv_obj_set_flex_flow(gateway_modal_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(gateway_modal_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_scrollbar_mode(gateway_modal_, LV_SCROLLBAR_MODE_OFF);
@@ -306,18 +325,21 @@ public:
         gateway_sub_label_ = lv_label_create(gateway_modal_);
         if (text_font) lv_obj_set_style_text_font(gateway_sub_label_, text_font, 0);
         lv_obj_set_style_text_color(gateway_sub_label_, lv_color_hex(0xAAAAAA), 0);
+        lv_obj_set_width(gateway_sub_label_, 216);
+        lv_label_set_long_mode(gateway_sub_label_, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(gateway_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(gateway_sub_label_, "短按▲/▼选择  OK确认配对");
 
-        lv_obj_t* sep = lv_obj_create(gateway_modal_);
-        lv_obj_set_size(sep, 204, 1);
-        lv_obj_set_style_bg_color(sep, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(sep, 0, 0);
-        lv_obj_set_style_margin_top(sep, 2, 0);
-        lv_obj_set_style_margin_bottom(sep, 4, 0);
+        gateway_sep_ = lv_obj_create(gateway_modal_);
+        lv_obj_set_size(gateway_sep_, 214, 1);
+        lv_obj_set_style_bg_color(gateway_sep_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(gateway_sep_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(gateway_sep_, 0, 0);
+        lv_obj_set_style_margin_top(gateway_sep_, 2, 0);
+        lv_obj_set_style_margin_bottom(gateway_sep_, 4, 0);
 
         gateway_list_box_ = lv_obj_create(gateway_modal_);
-        lv_obj_set_size(gateway_list_box_, 208, 150);
+        lv_obj_set_size(gateway_list_box_, 216, 160);
         lv_obj_set_style_bg_opa(gateway_list_box_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(gateway_list_box_, 0, 0);
         lv_obj_set_style_pad_all(gateway_list_box_, 0, 0);
@@ -327,7 +349,7 @@ public:
 
         for (size_t i = 0; i < kMaxGatewayItems; i++) {
             gateway_item_containers_[i] = lv_obj_create(gateway_list_box_);
-            lv_obj_set_size(gateway_item_containers_[i], 200, 26);
+            lv_obj_set_size(gateway_item_containers_[i], 212, 28);
             lv_obj_set_style_bg_opa(gateway_item_containers_[i], LV_OPA_TRANSP, 0);
             lv_obj_set_style_border_width(gateway_item_containers_[i], 0, 0);
             lv_obj_set_style_pad_all(gateway_item_containers_[i], 0, 0);
@@ -338,10 +360,13 @@ public:
             gateway_item_labels_[i] = lv_label_create(gateway_item_containers_[i]);
             if (text_font) lv_obj_set_style_text_font(gateway_item_labels_[i], text_font, 0);
             lv_obj_set_style_text_color(gateway_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_width(gateway_item_labels_[i], 208);
+            lv_label_set_long_mode(gateway_item_labels_[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
+            lv_obj_set_style_text_align(gateway_item_labels_[i], LV_TEXT_ALIGN_CENTER, 0);
 
-            // 单横线下划线指示 (高1px, 纯白)
+            // 选中选项单横线下划线指示 (高2px)
             gateway_item_lines_[i] = lv_obj_create(gateway_item_containers_[i]);
-            lv_obj_set_size(gateway_item_lines_[i], 140, 1);
+            lv_obj_set_size(gateway_item_lines_[i], 140, 2);
             lv_obj_set_style_bg_color(gateway_item_lines_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_style_bg_opa(gateway_item_lines_[i], LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(gateway_item_lines_[i], 0, 0);
@@ -353,16 +378,16 @@ public:
             lv_obj_add_flag(gateway_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
         }
 
-        // 8. 项目切换选择弹窗 (单横线下划线极简指示)
+        // 9. 项目切换选择弹窗 (宽228, 高260, 黑白高对比)
         project_modal_ = lv_obj_create(screen);
-        lv_obj_set_size(project_modal_, 224, 250);
+        lv_obj_set_size(project_modal_, 228, 260);
         lv_obj_align(project_modal_, LV_ALIGN_CENTER, 0, 0);
         lv_obj_set_style_bg_color(project_modal_, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(project_modal_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_color(project_modal_, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_border_width(project_modal_, 2, 0);
         lv_obj_set_style_radius(project_modal_, 8, 0);
-        lv_obj_set_style_pad_all(project_modal_, 8, 0);
+        lv_obj_set_style_pad_all(project_modal_, 6, 0);
         lv_obj_set_flex_flow(project_modal_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(project_modal_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_scrollbar_mode(project_modal_, LV_SCROLLBAR_MODE_OFF);
@@ -376,18 +401,21 @@ public:
         project_sub_label_ = lv_label_create(project_modal_);
         if (text_font) lv_obj_set_style_text_font(project_sub_label_, text_font, 0);
         lv_obj_set_style_text_color(project_sub_label_, lv_color_hex(0xAAAAAA), 0);
+        lv_obj_set_width(project_sub_label_, 216);
+        lv_label_set_long_mode(project_sub_label_, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(project_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(project_sub_label_, "▲/▼选择 OK确认 长按OK退出");
 
-        lv_obj_t* p_sep = lv_obj_create(project_modal_);
-        lv_obj_set_size(p_sep, 204, 1);
-        lv_obj_set_style_bg_color(p_sep, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_bg_opa(p_sep, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(p_sep, 0, 0);
-        lv_obj_set_style_margin_top(p_sep, 2, 0);
-        lv_obj_set_style_margin_bottom(p_sep, 4, 0);
+        project_sep_ = lv_obj_create(project_modal_);
+        lv_obj_set_size(project_sep_, 214, 1);
+        lv_obj_set_style_bg_color(project_sep_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(project_sep_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(project_sep_, 0, 0);
+        lv_obj_set_style_margin_top(project_sep_, 2, 0);
+        lv_obj_set_style_margin_bottom(p_sep ? 4 : 4, 0);
 
         project_list_box_ = lv_obj_create(project_modal_);
-        lv_obj_set_size(project_list_box_, 208, 150);
+        lv_obj_set_size(project_list_box_, 216, 160);
         lv_obj_set_style_bg_opa(project_list_box_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(project_list_box_, 0, 0);
         lv_obj_set_style_pad_all(project_list_box_, 0, 0);
@@ -397,7 +425,7 @@ public:
 
         for (size_t i = 0; i < kMaxProjectItems; i++) {
             project_item_containers_[i] = lv_obj_create(project_list_box_);
-            lv_obj_set_size(project_item_containers_[i], 200, 26);
+            lv_obj_set_size(project_item_containers_[i], 212, 28);
             lv_obj_set_style_bg_opa(project_item_containers_[i], LV_OPA_TRANSP, 0);
             lv_obj_set_style_border_width(project_item_containers_[i], 0, 0);
             lv_obj_set_style_pad_all(project_item_containers_[i], 0, 0);
@@ -408,10 +436,13 @@ public:
             project_item_labels_[i] = lv_label_create(project_item_containers_[i]);
             if (text_font) lv_obj_set_style_text_font(project_item_labels_[i], text_font, 0);
             lv_obj_set_style_text_color(project_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_width(project_item_labels_[i], 208);
+            lv_label_set_long_mode(project_item_labels_[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
+            lv_obj_set_style_text_align(project_item_labels_[i], LV_TEXT_ALIGN_CENTER, 0);
 
-            // 单横线下划线指示 (高1px, 纯白)
+            // 选中选项单横线下划线指示 (高2px)
             project_item_lines_[i] = lv_obj_create(project_item_containers_[i]);
-            lv_obj_set_size(project_item_lines_[i], 120, 1);
+            lv_obj_set_size(project_item_lines_[i], 140, 2);
             lv_obj_set_style_bg_color(project_item_lines_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_style_bg_opa(project_item_lines_[i], LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(project_item_lines_[i], 0, 0);
@@ -423,16 +454,16 @@ public:
             lv_obj_add_flag(project_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
         }
 
-        // 9. 系统设置选择弹窗 (单横线下划线极简指示)
+        // 10. 系统设置选择弹窗 (宽228, 高260, 黑白高对比)
         settings_modal_ = lv_obj_create(screen);
-        lv_obj_set_size(settings_modal_, 224, 250);
+        lv_obj_set_size(settings_modal_, 228, 260);
         lv_obj_align(settings_modal_, LV_ALIGN_CENTER, 0, 0);
         lv_obj_set_style_bg_color(settings_modal_, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(settings_modal_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_color(settings_modal_, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_border_width(settings_modal_, 2, 0);
         lv_obj_set_style_radius(settings_modal_, 8, 0);
-        lv_obj_set_style_pad_all(settings_modal_, 8, 0);
+        lv_obj_set_style_pad_all(settings_modal_, 6, 0);
         lv_obj_set_flex_flow(settings_modal_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(settings_modal_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_scrollbar_mode(settings_modal_, LV_SCROLLBAR_MODE_OFF);
@@ -446,18 +477,21 @@ public:
         settings_sub_label_ = lv_label_create(settings_modal_);
         if (text_font) lv_obj_set_style_text_font(settings_sub_label_, text_font, 0);
         lv_obj_set_style_text_color(settings_sub_label_, lv_color_hex(0xAAAAAA), 0);
+        lv_obj_set_width(settings_sub_label_, 216);
+        lv_label_set_long_mode(settings_sub_label_, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(settings_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(settings_sub_label_, "▲/▼选择 OK确认 长按OK退出");
 
-        lv_obj_t* s_sep = lv_obj_create(settings_modal_);
-        lv_obj_set_size(s_sep, 204, 1);
-        lv_obj_set_style_bg_color(s_sep, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_bg_opa(s_sep, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(s_sep, 0, 0);
-        lv_obj_set_style_margin_top(s_sep, 2, 0);
-        lv_obj_set_style_margin_bottom(s_sep, 4, 0);
+        settings_sep_ = lv_obj_create(settings_modal_);
+        lv_obj_set_size(settings_sep_, 214, 1);
+        lv_obj_set_style_bg_color(settings_sep_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(settings_sep_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(settings_sep_, 0, 0);
+        lv_obj_set_style_margin_top(settings_sep_, 2, 0);
+        lv_obj_set_style_margin_bottom(s_sep ? 4 : 4, 0);
 
         settings_list_box_ = lv_obj_create(settings_modal_);
-        lv_obj_set_size(settings_list_box_, 208, 150);
+        lv_obj_set_size(settings_list_box_, 216, 160);
         lv_obj_set_style_bg_opa(settings_list_box_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(settings_list_box_, 0, 0);
         lv_obj_set_style_pad_all(settings_list_box_, 0, 0);
@@ -467,7 +501,7 @@ public:
 
         for (size_t i = 0; i < kMaxSettingsItems; i++) {
             settings_item_containers_[i] = lv_obj_create(settings_list_box_);
-            lv_obj_set_size(settings_item_containers_[i], 200, 26);
+            lv_obj_set_size(settings_item_containers_[i], 212, 28);
             lv_obj_set_style_bg_opa(settings_item_containers_[i], LV_OPA_TRANSP, 0);
             lv_obj_set_style_border_width(settings_item_containers_[i], 0, 0);
             lv_obj_set_style_pad_all(settings_item_containers_[i], 0, 0);
@@ -478,10 +512,13 @@ public:
             settings_item_labels_[i] = lv_label_create(settings_item_containers_[i]);
             if (text_font) lv_obj_set_style_text_font(settings_item_labels_[i], text_font, 0);
             lv_obj_set_style_text_color(settings_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_width(settings_item_labels_[i], 208);
+            lv_label_set_long_mode(settings_item_labels_[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
+            lv_obj_set_style_text_align(settings_item_labels_[i], LV_TEXT_ALIGN_CENTER, 0);
 
-            // 单横线下划线指示 (高1px, 纯白)
+            // 选中选项单横线下划线指示 (高2px)
             settings_item_lines_[i] = lv_obj_create(settings_item_containers_[i]);
-            lv_obj_set_size(settings_item_lines_[i], 120, 1);
+            lv_obj_set_size(settings_item_lines_[i], 140, 2);
             lv_obj_set_style_bg_color(settings_item_lines_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_style_bg_opa(settings_item_lines_[i], LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(settings_item_lines_[i], 0, 0);
@@ -493,7 +530,7 @@ public:
             lv_obj_add_flag(settings_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
         }
 
-        // 10. 真实 FFT 频谱 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
+        // 11. 真实 FFT 频谱 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
         if (!wave_timer_) {
             wave_timer_ = lv_timer_create([](lv_timer_t* timer) {
                 auto self = static_cast<AiPassportDisplay*>(lv_timer_get_user_data(timer));
@@ -501,10 +538,13 @@ public:
             }, 50, this);
         }
 
-        // 11. 确保底部栏默认隐藏，保持纯粹极简
+        // 12. 确保底部栏默认隐藏，保持纯粹极简
         if (bottom_bar_) {
             lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
         }
+
+        // 13. 初始化并应用当前主题纯黑白样式
+        ApplyThemeStyles();
     }
 
     void OnWaveTimerTick() {
@@ -712,6 +752,8 @@ public:
                 lv_label_set_text(gateway_item_labels_[i], buf);
 
                 if ((int)i == selected_gateway_index_) {
+                    lv_color_t line_col = is_theme_inverted_ ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
+                    lv_obj_set_style_bg_color(gateway_item_lines_[i], line_col, 0);
                     lv_obj_remove_flag(gateway_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
                     lv_obj_scroll_to_view(gateway_item_containers_[i], LV_ANIM_ON);
                 } else {
@@ -845,6 +887,8 @@ public:
                 lv_label_set_text(project_item_labels_[i], buf);
 
                 if ((int)i == selected_project_index_) {
+                    lv_color_t line_col = is_theme_inverted_ ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
+                    lv_obj_set_style_bg_color(project_item_lines_[i], line_col, 0);
                     lv_obj_remove_flag(project_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
                     lv_obj_scroll_to_view(project_item_containers_[i], LV_ANIM_ON);
                 } else {
@@ -949,6 +993,8 @@ public:
             lv_label_set_text(settings_item_labels_[i], kSettingsTitles[i]);
 
             if ((int)i == selected_settings_index_) {
+                lv_color_t line_col = is_theme_inverted_ ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
+                lv_obj_set_style_bg_color(settings_item_lines_[i], line_col, 0);
                 lv_obj_remove_flag(settings_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
                 lv_obj_scroll_to_view(settings_item_containers_[i], LV_ANIM_ON);
             } else {
@@ -967,13 +1013,86 @@ public:
         HideSettingsList();
     }
 
-    // 硬件级反色切换黑白主题
+    // 纯黑白双色主题自适应渲染
+    // 在白色主题下（is_theme_inverted_ == true）：白底、黑字、黑色边框、选中下划线为纯黑
+    // 在黑色主题下（is_theme_inverted_ == false）：黑底、白字、白色边框、选中下划线为纯白
+    void ApplyThemeStyles() {
+        DisplayLockGuard lock(this);
+        auto screen = lv_screen_active();
+
+        lv_color_t bg_col = is_theme_inverted_ ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);
+        lv_color_t fg_col = is_theme_inverted_ ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
+        lv_color_t sub_col = is_theme_inverted_ ? lv_color_hex(0x666666) : lv_color_hex(0xAAAAAA);
+
+        if (screen) {
+            lv_obj_set_style_bg_color(screen, bg_col, 0);
+        }
+        if (center_line_obj_) {
+            lv_obj_set_style_bg_color(center_line_obj_, fg_col, 0);
+        }
+        for (int i = 0; i < kWaveBarsCount; i++) {
+            if (wave_bars_[i]) {
+                lv_obj_set_style_bg_color(wave_bars_[i], fg_col, 0);
+            }
+        }
+        if (bottom_volume_box_) {
+            lv_obj_set_style_bg_color(bottom_volume_box_, bg_col, 0);
+            lv_obj_set_style_border_color(bottom_volume_box_, fg_col, 0);
+            if (volume_icon_label_) lv_obj_set_style_text_color(volume_icon_label_, fg_col, 0);
+            if (volume_text_label_) lv_obj_set_style_text_color(volume_text_label_, fg_col, 0);
+        }
+        if (status_label_) {
+            lv_obj_set_style_text_color(status_label_, fg_col, 0);
+        }
+        if (notification_label_) {
+            lv_obj_set_style_text_color(notification_label_, fg_col, 0);
+        }
+
+        // 飞书网关配对选择弹窗
+        if (gateway_modal_) {
+            lv_obj_set_style_bg_color(gateway_modal_, bg_col, 0);
+            lv_obj_set_style_border_color(gateway_modal_, fg_col, 0);
+            if (gateway_title_label_) lv_obj_set_style_text_color(gateway_title_label_, fg_col, 0);
+            if (gateway_sub_label_) lv_obj_set_style_text_color(gateway_sub_label_, sub_col, 0);
+            if (gateway_sep_) lv_obj_set_style_bg_color(gateway_sep_, fg_col, 0);
+            for (size_t i = 0; i < kMaxGatewayItems; i++) {
+                if (gateway_item_labels_[i]) lv_obj_set_style_text_color(gateway_item_labels_[i], fg_col, 0);
+                if (gateway_item_lines_[i]) lv_obj_set_style_bg_color(gateway_item_lines_[i], fg_col, 0);
+            }
+        }
+
+        // 项目切换选择弹窗
+        if (project_modal_) {
+            lv_obj_set_style_bg_color(project_modal_, bg_col, 0);
+            lv_obj_set_style_border_color(project_modal_, fg_col, 0);
+            if (project_title_label_) lv_obj_set_style_text_color(project_title_label_, fg_col, 0);
+            if (project_sub_label_) lv_obj_set_style_text_color(project_sub_label_, sub_col, 0);
+            if (project_sep_) lv_obj_set_style_bg_color(project_sep_, fg_col, 0);
+            for (size_t i = 0; i < kMaxProjectItems; i++) {
+                if (project_item_labels_[i]) lv_obj_set_style_text_color(project_item_labels_[i], fg_col, 0);
+                if (project_item_lines_[i]) lv_obj_set_style_bg_color(project_item_lines_[i], fg_col, 0);
+            }
+        }
+
+        // 系统设置选择弹窗
+        if (settings_modal_) {
+            lv_obj_set_style_bg_color(settings_modal_, bg_col, 0);
+            lv_obj_set_style_border_color(settings_modal_, fg_col, 0);
+            if (settings_title_label_) lv_obj_set_style_text_color(settings_title_label_, fg_col, 0);
+            if (settings_sub_label_) lv_obj_set_style_text_color(settings_sub_label_, sub_col, 0);
+            if (settings_sep_) lv_obj_set_style_bg_color(settings_sep_, fg_col, 0);
+            for (size_t i = 0; i < kMaxSettingsItems; i++) {
+                if (settings_item_labels_[i]) lv_obj_set_style_text_color(settings_item_labels_[i], fg_col, 0);
+                if (settings_item_lines_[i]) lv_obj_set_style_bg_color(settings_item_lines_[i], fg_col, 0);
+            }
+        }
+    }
+
+    // 切换黑白主题
     void ToggleThemeInvert() {
         DisplayLockGuard lock(this);
         is_theme_inverted_ = !is_theme_inverted_;
-        if (panel_) {
-            esp_lcd_panel_invert_color(panel_, is_theme_inverted_ ? !DISPLAY_INVERT_COLOR : DISPLAY_INVERT_COLOR);
-        }
+        ApplyThemeStyles();
         Settings settings("display", true);
         settings.SetInt("invert_color", is_theme_inverted_ ? 1 : 0);
         ShowNotification(is_theme_inverted_ ? "[已切换: 白底黑字]" : "[已切换: 黑底白字]", 1500);
@@ -982,12 +1101,8 @@ public:
     void ApplySavedThemeInvert() {
         Settings settings("display", false);
         int inv = settings.GetInt("invert_color", 0);
-        if (inv == 1) {
-            is_theme_inverted_ = true;
-            if (panel_) {
-                esp_lcd_panel_invert_color(panel_, !DISPLAY_INVERT_COLOR);
-            }
-        }
+        is_theme_inverted_ = (inv == 1);
+        ApplyThemeStyles();
     }
 
     virtual void SetEmotion(const char* emotion) override {
@@ -1005,15 +1120,17 @@ public:
     virtual void SetTheme(Theme* theme) override {
         if (theme) {
             auto lvgl_theme = static_cast<LvglTheme*>(theme);
-            lvgl_theme->set_background_color(lv_color_hex(0x000000));
-            lvgl_theme->set_text_color(lv_color_hex(0xFFFFFF));
-            lvgl_theme->set_chat_background_color(lv_color_hex(0x000000));
-            lvgl_theme->set_user_bubble_color(lv_color_hex(0x000000));
-            lvgl_theme->set_assistant_bubble_color(lv_color_hex(0x000000));
-            lvgl_theme->set_system_bubble_color(lv_color_hex(0x000000));
-            lvgl_theme->set_system_text_color(lv_color_hex(0xFFFFFF));
-            lvgl_theme->set_border_color(lv_color_hex(0xFFFFFF));
-            lvgl_theme->set_low_battery_color(lv_color_hex(0xFFFFFF));
+            lv_color_t bg_col = is_theme_inverted_ ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);
+            lv_color_t fg_col = is_theme_inverted_ ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
+            lvgl_theme->set_background_color(bg_col);
+            lvgl_theme->set_text_color(fg_col);
+            lvgl_theme->set_chat_background_color(bg_col);
+            lvgl_theme->set_user_bubble_color(bg_col);
+            lvgl_theme->set_assistant_bubble_color(bg_col);
+            lvgl_theme->set_system_bubble_color(bg_col);
+            lvgl_theme->set_system_text_color(fg_col);
+            lvgl_theme->set_border_color(fg_col);
+            lvgl_theme->set_low_battery_color(fg_col);
         }
         SpiLcdDisplay::SetTheme(theme);
     }
@@ -1111,13 +1228,14 @@ private:
                     if (!self->is_push_to_talk_active_) {
                         return;
                     }
-                    int elapsed_sec = (int)((esp_timer_get_time() - self->record_start_time_) / 1000000);
-                    Application::GetInstance().Schedule([self, elapsed_sec]() {
+                    int64_t elapsed_us = esp_timer_get_time() - self->record_start_time_;
+                    int elapsed_sec = (int)(elapsed_us / 1000000);
+                    Application::GetInstance().Schedule([self, elapsed_sec, elapsed_us]() {
                         if (!self->is_push_to_talk_active_) {
                             return;
                         }
                         if (elapsed_sec >= 60) {
-                            self->StopPushToTalk(elapsed_sec);
+                            self->StopPushToTalk(elapsed_us);
                             return;
                         }
                         if (self->display_) {
@@ -1144,7 +1262,7 @@ private:
         }
     }
 
-    void StopPushToTalk(int duration_sec) {
+    void StopPushToTalk(int64_t elapsed_us) {
         if (!is_push_to_talk_active_) {
             return;
         }
@@ -1159,12 +1277,13 @@ private:
             display_->ShowIdleStraightLine();
         }
 
-        if (duration_sec < 1) {
+        // 仅当录音极短（小于 250ms 即 0.25 秒误按）才视为误触取消
+        if (elapsed_us < 250000) {
             if (app.GetDeviceState() == kDeviceStateListening) {
                 app.StopListening();
             }
             if (display_) {
-                display_->ShowNotification("[录音时间太短(<1秒)]\n[已取消发送]", 2000);
+                display_->ShowNotification("[录音时间过短]\n[已取消发送]", 1500);
                 display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
             }
             return;
@@ -1175,11 +1294,14 @@ private:
             app.StopListening();
         }
 
+        int duration_sec = (int)((elapsed_us + 500000) / 1000000);
+        if (duration_sec < 1) duration_sec = 1;
+
         if (display_) {
             char tip[64];
-            snprintf(tip, sizeof(tip), "[录音完成 (%d秒)]\n[发送中...]", duration_sec);
-            display_->ShowNotification(tip, 1200);
-            display_->SetStatus("[发送中...]");
+            snprintf(tip, sizeof(tip), "[录音完成 (%d秒)]\n[等待飞书处理...]", duration_sec);
+            display_->ShowNotification(tip, 1500);
+            display_->SetStatus("[思考中...]");
         }
     }
 
@@ -1375,7 +1497,7 @@ private:
         adc_cfg.button_index = kAdcButtonOk;      // OK:   ~595 mV
         adc_cfg.min = BSP_ADC_BUTTON_OK_MIN;
         adc_cfg.max = BSP_ADC_BUTTON_OK_MAX;
-        adc_button_[kAdcButtonOk] = new AdcButton(adc_cfg, 600);
+        adc_button_[kAdcButtonOk] = new AdcButton(adc_cfg, 350); // 350ms 迅速触发对讲长按
 
         // 按钮事件绑定与交互优化
         auto up = adc_button_[kAdcButtonUp];
@@ -1396,22 +1518,18 @@ private:
                 }
             }
 
-            // 主界面短按 ▲ 键：呼出项目切换列表
+            // 主界面短按 ▲ 键：立即呼出项目切换列表弹窗
             Application::GetInstance().Schedule([this]() {
+                if (last_projects_.empty()) {
+                    last_projects_ = {"Letgo", "passport_game", "feishu-bot-plugin", "antigravity-feishu-bot"};
+                    if (current_project_.empty()) current_project_ = "Letgo";
+                }
+                if (display_) {
+                    display_->ShowProjectList(last_projects_, current_project_);
+                }
                 auto& app = Application::GetInstance();
                 if (app.IsFeishuConnected()) {
                     app.RequestFeishuProjectList();
-                    if (display_) {
-                        if (!last_projects_.empty()) {
-                            display_->ShowProjectList(last_projects_, current_project_);
-                        } else {
-                            display_->ShowNotification("[正在获取项目列表...]", 1500);
-                        }
-                    }
-                } else {
-                    if (display_) {
-                        display_->ShowNotification("[飞书服务未连接]\n[请先连接服务]", 2000);
-                    }
                 }
             });
         });
@@ -1606,9 +1724,9 @@ private:
         ok->OnPressUp([this]() {
             TouchActivity("OK_UP");
             if (is_push_to_talk_active_) {
-                int duration_sec = (int)((esp_timer_get_time() - record_start_time_) / 1000000);
-                Application::GetInstance().Schedule([this, duration_sec]() {
-                    StopPushToTalk(duration_sec);
+                int64_t elapsed_us = esp_timer_get_time() - record_start_time_;
+                Application::GetInstance().Schedule([this, elapsed_us]() {
+                    StopPushToTalk(elapsed_us);
                 });
             }
         });
@@ -1705,6 +1823,9 @@ public:
             display_->ApplySavedThemeInvert();
         }
 
+        last_projects_ = {"Letgo", "passport_game", "feishu-bot-plugin", "antigravity-feishu-bot"};
+        current_project_ = "Letgo";
+
         last_activity_time_ = esp_timer_get_time();
         esp_timer_create_args_t dim_timer_args = {
             .callback = [](void* arg) {
@@ -1768,10 +1889,14 @@ public:
 
         // 监听飞书服务端返回的项目列表
         Application::GetInstance().SetOnFeishuProjectsReceived([this](const std::vector<std::string>& projects, const std::string& current) {
-            last_projects_ = projects;
-            current_project_ = current;
+            if (!projects.empty()) {
+                last_projects_ = projects;
+            }
+            if (!current.empty()) {
+                current_project_ = current;
+            }
             if (display_ && display_->IsProjectListVisible()) {
-                display_->ShowProjectList(projects, current);
+                display_->ShowProjectList(last_projects_, current_project_);
             }
         });
     }

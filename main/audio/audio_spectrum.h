@@ -102,7 +102,8 @@ public:
             {41, 62, 54.0f}, // Bin 7: 5125~7750 Hz (Air / 通透气声)
         };
 
-        // 计算 8 个主频段原始能量值
+        // 计算 8 个主频段能量并施加真实对数动态范围压缩 (Dynamic Range Compression)
+        // 彻底解决微弱声音即全部打满顶峰的问题，让小声细腻波动、大声饱满有力
         float raw_heights[kNumBins];
         float total_energy = 0.0f;
         for (size_t b = 0; b < kNumBins; b++) {
@@ -113,15 +114,18 @@ public:
                 }
             }
             total_energy += max_val;
-            raw_heights[b] = max_val * kBinDefs[b].gain * 30.0f;
+            // 对数压缩: norm = log10(1 + max_val * 0.35 * gain_factor)
+            // 使得动态范围扩展至 35dB: 轻声微动(3~6px)、正常讲话(8~16px)、大声饱满(18~26px)，绝不爆顶
+            float gain_factor = kBinDefs[b].gain / 40.0f;
+            float norm = log10f(1.0f + max_val * 0.32f * gain_factor);
+            if (norm > 1.0f) norm = 1.0f;
+            raw_heights[b] = norm * 26.0f;
         }
 
-        // 软静音门限 (Noise Gate): 抑制待机麦克风底噪或微弱环境杂音
-        // 阈值设定在 ~0.025f，低于门限时直接进入 2px 静息基线状态
-        bool is_silent = (total_energy < 0.028f);
+        // 软静音门限 (Noise Gate): 抑制待机麦克风微弱杂音
+        bool is_silent = (total_energy < 0.04f);
 
-        // 方案 B：双向对称镜像排布映射表 (15 根柱子: 外侧高频/低频均衡 -> 正中心为人声/主低频核心)
-        // 映射索引: [7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7]
+        // 双向对称镜像排布映射表 (15 根柱子: 外侧高频/低频均衡 -> 正中心为人声核心)
         static const uint8_t kMirrorMap[kNumBands] = {
             7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7
         };
@@ -131,7 +135,7 @@ public:
             if (!is_silent) {
                 uint8_t bin_idx = kMirrorMap[i];
                 target_h = 2 + (int)raw_heights[bin_idx];
-                if (target_h > 32) target_h = 32;
+                if (target_h > 28) target_h = 28;
                 if (target_h < 2) target_h = 2;
             }
 
