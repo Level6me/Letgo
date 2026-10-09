@@ -816,6 +816,11 @@ void Application::HandleToggleChatEvent() {
 
     if (state == kDeviceStateIdle) {
         ListeningMode mode = GetDefaultListeningMode();
+        if (IsFeishuConnected()) {
+            protocol_->OpenAudioChannel();
+            SetListeningMode(mode);
+            return;
+        }
         if (!protocol_->IsAudioChannelOpened()) {
             SetDeviceState(kDeviceStateConnecting);
             // Schedule to let the state change be processed first (UI update)
@@ -875,6 +880,11 @@ void Application::HandleStartListeningEvent() {
     }
 
     if (state == kDeviceStateIdle) {
+        if (IsFeishuConnected()) {
+            protocol_->OpenAudioChannel();
+            SetListeningMode(kListeningModeManualStop);
+            return;
+        }
         if (!protocol_->IsAudioChannelOpened()) {
             SetDeviceState(kDeviceStateConnecting);
             // Schedule to let the state change be processed first (UI update)
