@@ -2028,8 +2028,14 @@ public:
                         self->EnterOrRefreshStandbyClock();
                     });
 
-                    // 超过 30 秒无操作，降低屏幕亮度至 20% 省电休眠
-                    if (now - self->last_activity_time_ >= 30 * 1000000LL) {
+                    // 二级休眠：超过 90 秒无操作息屏待机，超过 30 秒微光 20%
+                    if (now - self->last_activity_time_ >= 90 * 1000000LL) {
+                        if (self->current_brightness_ > 0) {
+                            self->current_brightness_ = 0;
+                            self->GetBacklight()->SetBrightness(0);
+                            ESP_LOGI(TAG, "Screen turned off due to 90s inactivity");
+                        }
+                    } else if (now - self->last_activity_time_ >= 30 * 1000000LL) {
                         if (self->current_brightness_ > 20) {
                             self->current_brightness_ = 20;
                             self->GetBacklight()->SetBrightness(20);

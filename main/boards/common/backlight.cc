@@ -58,11 +58,16 @@ void Backlight::SetBrightness(uint8_t brightness, bool permanent) {
     }
 
     target_brightness_ = brightness;
-    step_ = (target_brightness_ > brightness_) ? 1 : -1;
+    int diff = std::abs((int)target_brightness_ - (int)brightness_);
+    // 自适应步进：无论跨度多大，均在约 200ms 内完成优雅平滑过渡 (每 8ms 触发一次)
+    int steps_needed = 25; // 25 * 8ms = 200ms
+    int step_val = (diff + steps_needed - 1) / steps_needed;
+    if (step_val < 1) step_val = 1;
+    step_ = (target_brightness_ > brightness_) ? step_val : -step_val;
 
     if (transition_timer_ != nullptr) {
-        // 启动定时器，每 5ms 更新一次
-        esp_timer_start_periodic(transition_timer_, 5 * 1000);
+        esp_timer_stop(transition_timer_);
+        esp_timer_start_periodic(transition_timer_, 8 * 1000);
     }
     ESP_LOGI(TAG, "Set brightness to %d", brightness);
 }
@@ -73,7 +78,19 @@ void Backlight::OnTransitionTimer() {
         return;
     }
 
-    brightness_ += step_;
+    if (step_ > 0) {
+        if ((int)brightness_ + step_ >= target_brightness_) {
+            brightness_ = target_brightness_;
+        } else {
+            brightness_ += step_;
+        }
+    } else {
+        if ((int)brightness_ + step_ <= target_brightness_) {
+            brightness_ = target_brightness_;
+        } else {
+            brightness_ += step_;
+        }
+    }
     SetBrightnessImpl(brightness_);
 
     if (brightness_ == target_brightness_) {
