@@ -5,11 +5,9 @@
 #include "board.h"
 #include "display.h"
 #include "mcp_server.h"
-#include "mqtt_protocol.h"
 #include "settings.h"
 #include "system_info.h"
 #include "text_glyph_payload.h"
-#include "websocket_protocol.h"
 #include "feishu_protocol.h"
 
 #include <driver/gpio.h>

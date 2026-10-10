@@ -53,10 +53,15 @@ Breadboard demo:
 
 Only the FoloToy AI Passport is enabled in this repository: ESP32-C3, 8 MB flash, no PSRAM, ST7789 240×320 display, ES8311 audio codec, CW2017 fuel gauge, and GPIO0 ADC-ladder buttons. See [`main/boards/folotoy/ai-passport`](main/boards/folotoy/ai-passport) for the pin map and board implementation.
 
-Build it with:
+> [!IMPORTANT]
+> **Firmware Build Notice**: All firmware builds for this project **MUST be performed via GitHub Actions in the cloud**.
+> Local environment compilation is neither supported nor recommended due to toolchain and environment variances. Pushing to GitHub branches will automatically trigger the standard cloud action matrix to build and package releases.
+
+Build it with GitHub Actions:
 
 ```sh
-python scripts/build.py folotoy/ai-passport --name ai-passport --language zh-CN
+# Push code to remote repository and GitHub Actions will automatically build
+git push myorigin main
 ```
 
 The output is `build/merged-binary.bin` for flash address `0x0`. A raw merged image overwrites the gaps between segments and may overwrite NVS configuration; for an existing device, use the segmented addresses in `build/flash_args` and preserve identity/configuration partitions. This project does not back up existing firmware before flashing.

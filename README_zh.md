@@ -10,6 +10,9 @@
 
 小智 AI 聊天机器人作为一个语音交互入口，利用 Qwen / DeepSeek 等大模型的 AI 能力，通过 MCP 协议实现多端控制。
 
+> [!IMPORTANT]
+> **固件编译规范**：本项目的所有固件构建**只能在 GitHub Actions 云端进行编译**。本地环境因工具链与依赖配置差异，不建议也不支持本地手动编译固件。每次代码提交并推送到远程仓库分支后，GitHub Actions 会自动触发标准的流水线编译并发布最终的完整固件包。
+
 <img src="docs/mcp-based-graph.jpg" alt="通过MCP控制万物" width="320">
 
 ## 近期更新

@@ -25,6 +25,7 @@ Read the closest existing implementation before adding a new one. Prefer the nar
 ## Required Rules
 
 - Preserve unrelated worktree changes and keep patches focused.
+- 本项目固件编译只能在 GitHub Actions 云端流水线构建，本地不维护固件构建。
 - A build must export exactly one board factory through `DECLARE_BOARD(...)`.
 - Never alter an existing board's pins to support different hardware. Add a uniquely named board or release variant; board identity affects OTA compatibility.
 - Core code depends on `Board` interfaces, never a concrete board class or board `config.h`.
