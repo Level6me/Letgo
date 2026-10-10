@@ -43,9 +43,63 @@ The generic upstream firmware targeted multi-board public releases and general L
 
 ## 🔗 Project Dependencies
 
-### 1. Server / Ecosystem Dependencies
-* **[antigravity-feishu-bot](https://github.com/Level6me/antigravity-feishu-bot)**: Companion Feishu gateway daemon. Handles Feishu OpenAPI WebSocket connections, LLM agent orchestration, Feishu Bitable synchronization, and local UDP service discovery.
-* **Lark Open Platform**: Feishu internal enterprise bot application credentials.
+### 1. Server / Brain Dependencies (Google Antigravity CLI & Feishu Bot Gateway)
+
+`Letgo` is not an isolated smart speaker. It serves as the physical hardware extension of the **Google Antigravity CLI** agentic ecosystem inside the Feishu (Lark) workplace.
+
+To enable the Passport device to converse, code, and execute tasks, **two core backend services must be deployed on your host machine or server**:
+
+#### Dependency A: Google Antigravity CLI (`agy`)
+* **Role**: Primary reasoning, planning, and coding execution engine (developed by Google DeepMind).
+* **Function**: Receives transcribed voice commands from the Feishu gateway, runs iterative task planning, edits codebase files, executes terminal Shell commands, and dispatches MCP tools.
+* **Requirements**:
+  * Must be installed with the CLI executable (`agy` or `antigravity`) accessible in system `PATH`.
+  * Authenticate via `agy login` or relevant environment credentials.
+
+#### Dependency B: Feishu Gateway Plugin Service (`antigravity-feishu-bot`)
+* **Role**: The core middleware gateway connecting Feishu OpenAPI, host Antigravity CLI, and Passport hardware.
+* **Key Functions**:
+  1. Connects to Feishu via native WebSocket long-polling (**No public IP or Webhook URL needed**);
+  2. Broadcasts UDP/mDNS discovery beacons across the local network so Passport discovers the gateway instantly;
+  3. Bi-directional audio & text streaming: Transcribes 16kHz Opus audio from hardware, delegates to `agy`, streams speech responses back via Edge-TTS, and renders dynamic cards in Feishu chat.
+* **Environment Requirements**:
+  * **OS**: Linux (Ubuntu 20.04+ / Debian 11+ / CentOS, etc.) or macOS;
+  * **Python**: Python 3.10+;
+  * **Process Supervisor**: Node.js & PM2 (recommended for 24/7 background operation).
+* **Setup Instructions**:
+  ```bash
+  # 1. Clone repository
+  git clone https://github.com/Level6me/antigravity-feishu-bot.git
+  cd antigravity-feishu-bot
+
+  # 2. Setup virtual environment
+  python3 -m venv venv
+  source venv/bin/activate
+
+  # 3. Install dependencies (lark-oapi, websockets, edge-tts, etc.)
+  pip install -r requirements.txt
+
+  # 4. Configure credentials
+  cp .env.example .env
+  nano .env  # Fill in FEISHU_APP_ID & FEISHU_APP_SECRET
+
+  # 5. Start with PM2
+  pm2 start venv/bin/python3 --name "feishu-bot" -- main.py
+  pm2 save
+  ```
+* **One-Click Installer (Alternative)**:
+  ```bash
+  bash <(curl -sL https://raw.githubusercontent.com/Level6me/antigravity-feishu-bot/main/install.sh)
+  ```
+
+#### Dependency C: Feishu Open Platform Application Permissions
+Create an enterprise internal app on [Feishu Open Platform (open.feishu.cn)](https://open.feishu.cn/) and enable:
+1. **Bot Capability**: Enable "Bot" under Add App Capabilities;
+2. **Event Subscription**: Set to **"Receive events via WebSocket"**;
+3. **Permissions**:
+   * `im:message` (Receive messages);
+   * `im:message:send_as_bot` (Send messages as bot);
+   * `im:resource` (Upload and download images/files).
 
 ### 2. Hardware Target
 * **SoC**: ESP32-C3-MINI-1 (Single-core RISC-V 32-bit @ 160MHz, 400KB SRAM, 8MB SPI Flash, **No external PSRAM**)

@@ -45,9 +45,65 @@
 
 ## 🔗 项目依赖体系
 
-### 1. 服务端 / 调度依赖
-* **[antigravity-feishu-bot](https://github.com/Level6me/antigravity-feishu-bot)**：配套的飞书智能长连接网关服务。负责与飞书开放平台（Lark OpenAPI）建立 WebSocket 长连接，处理大模型对话、工具调用（MCP）、多维表格同步以及局域网 UDP 广播。
-* **飞书开放平台**：飞书企业自建应用 / 机器人凭证与权限。
+### 1. 服务端 / 调度依赖（核心大脑：Antigravity CLI 与飞书机器人网关）
+
+`Letgo` 并不是一个普通的独立联网音箱，而是 **Google Antigravity CLI** 驱动的飞书智能机器人系统在物理世界的随身硬件投影。
+
+为了让 Passport 硬件正常工作并与飞书进行语音对话、调度大模型和操作项目，**必须在您的宿主机/服务器上部署以下两项核心服务**：
+
+#### 依赖 A：Google Antigravity CLI (`agy`)
+* **定位**：核心推理与工程执行引擎（由 Google DeepMind 研发的高级 Agentic Coding 体系）。
+* **作用**：负责接收飞书网关转交的用户语音指令，在服务器工作区自动执行多步任务规划、读取与修改代码、执行 Shell 终端命令、管理上下文以及调用 MCP 工具。
+* **安装要求**：
+  * 宿主机系统需预先安装 Antigravity CLI 并配置系统环境变量，使终端支持 `agy` 或 `antigravity` 命令；
+  * 执行 `agy login` 完成账号授权登录，或在环境变量中注入对应的认证凭据。
+
+#### 依赖 B：飞书网关插件服务 (`antigravity-feishu-bot`)
+* **定位**：连接飞书平台、宿主机 Antigravity CLI 以及 Passport 硬件的核心中间件网关。
+* **作用**：
+  1. 通过飞书原生 WebSocket 长连接与开放平台通信（**无需公网 IP，无需配置 Webhook 回调域名**）；
+  2. 在局域网内通过 UDP / mDNS 广播服务，让 AI Passport 开机秒级自动发现并建立私有长连接；
+  3. 双向流式转发：将硬件上传的 Opus 语音流实时转写并调度 `agy`，同时将推理答复通过 Edge-TTS 实时合成回传给硬件喇叭播报，并在飞书 App 客户端渲染富媒体动态流转卡片。
+* **环境要求**：
+  * **操作系统**：Linux (Ubuntu 20.04+ / Debian 11+ / CentOS 等) 或 macOS；
+  * **Python 环境**：Python 3.10 及以上版本；
+  * **进程守护**：Node.js & PM2（推荐用于后台 24x7 高可用守护）。
+* **安装与部署步骤**：
+  ```bash
+  # 1. 克隆飞书机器人网关仓库
+  git clone https://github.com/Level6me/antigravity-feishu-bot.git
+  cd antigravity-feishu-bot
+
+  # 2. 创建并激活 Python 虚拟环境
+  python3 -m venv venv
+  source venv/bin/activate
+
+  # 3. 安装依赖包 (包括 lark-oapi, websockets, edge-tts, requests 等)
+  pip install -r requirements.txt
+
+  # 4. 配置环境变量
+  cp .env.example .env
+  nano .env  # 填写飞书应用的 APP_ID 与 APP_SECRET
+  ```
+* **一键交互式安装（备选推荐）**：
+  在服务器终端直接执行：
+  ```bash
+  bash <(curl -sL https://raw.githubusercontent.com/Level6me/antigravity-feishu-bot/main/install.sh)
+  ```
+* **启动服务**：
+  ```bash
+  pm2 start venv/bin/python3 --name "feishu-bot" -- main.py
+  pm2 save
+  ```
+
+#### 依赖 C：飞书开放平台应用权限配置
+需在 [飞书开放平台 (open.feishu.cn)](https://open.feishu.cn/) 创建企业“企业自建应用”，获取凭证并开启以下权限：
+1. **启用机器人能力**：在“添加应用能力”中开启“机器人”；
+2. **事件订阅方式**：选择 **“使用 WebSocket 长连接接收事件”**；
+3. **开通必要权限**：
+   * `im:message`（接收消息与事件）；
+   * `im:message:send_as_bot`（以应用身份发送消息）；
+   * `im:resource`（获取与上传图片、音频、富媒体文件）。
 
 ### 2. 硬件规格依赖
 * **主控芯片**: ESP32-C3-MINI-1 (单核 RISC-V 32 位，最高 160MHz，400KB 内部 SRAM，8MB SPI Flash，**无外部 PSRAM**)
