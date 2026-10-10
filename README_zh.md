@@ -1,171 +1,126 @@
-# An MCP-based Chatbot
+# Letgo - FoloToy AI Passport 飞书随身智能终端
 
-（中文 | [English](README.md) | [日本語](README_ja.md)）
+（中文 | [English](README.md)）
 
-## 介绍
-
-👉 [人类：给 AI 装摄像头 vs AI：当场发现主人三天没洗头【bilibili】](https://www.bilibili.com/video/BV1bpjgzKEhd/)
-
-👉 [手工打造你的 AI 女友，新手入门教程【bilibili】](https://www.bilibili.com/video/BV1XnmFYLEJN/)
-
-小智 AI 聊天机器人作为一个语音交互入口，利用 Qwen / DeepSeek 等大模型的 AI 能力，通过 MCP 协议实现多端控制。
+本项目是专为 **FoloToy AI Passport** 硬件量身定制的飞书智能随身语音终端固件，作为飞书办公与智能机器人生态的实体硬件入口。
 
 > [!IMPORTANT]
-> **固件编译规范**：本项目的所有固件构建**只能在 GitHub Actions 云端进行编译**。本地环境因工具链与依赖配置差异，不建议也不支持本地手动编译固件。每次代码提交并推送到远程仓库分支后，GitHub Actions 会自动触发标准的流水线编译并发布最终的完整固件包。
+> **云端编译规范**：本项目的所有固件构建**只能且必须在 GitHub Actions 云端流水线进行编译**。本地环境因 ESP-IDF 6.1 工具链与复杂组件缓存差异，不提供也不支持本地构建。每次提交代码推送到 `main` 分支后，GitHub Actions 会自动触发构建并发布全量烧录包。
 
-<img src="docs/mcp-based-graph.jpg" alt="通过MCP控制万物" width="320">
+---
 
-## 近期更新
+## 📌 项目渊源与二次开发说明
 
-- 项目现在要求 ESP-IDF v6.0.1 或以上版本，推荐使用 [ESP-IDF v6.1](https://github.com/espressif/esp-idf/releases/tag/v6.1)。不再支持 ESP-IDF 5.x。当前矩阵包含 171 个变体，其中 ESP32-S31 变体需要 IDF 6.1 或以上版本。
-- MQTT 和 BluFi 加密已迁移到 PSA Crypto，同时完成了 IDF 6 组件拆分及第三方依赖兼容处理。
-- 加固了音频流水线并发、MQTT/UDP 数据包校验和发布矩阵选择逻辑。
-- 使用 ESP-SR 2.4.7 时，ESP32-P4 Rev1 和 Rev3 均支持 IDF 6。
+本项目基于以下开源项目深度定制与二次开发而来：
 
-### 已实现功能
+* **直接上游**: [FoloToy / folo-ai-passport-xiaozhi](https://github.com/FoloToy/folo-ai-passport-xiaozhi)（专为 AI Passport 适配的小智分支）
+* **基础原型**: [XiaoZhi ESP32](https://github.com/78/xiaozhi-esp32)（小智开源 AI 聊天机器人固件）
 
-- 支持 Wi-Fi、有线以太网、USB RNDIS，以及 ML307/EC801E 或 NT26 Cat.1 4G 网络；部分硬件支持 Wi-Fi 与 4G 切换
-- 基于 [ESP-SR](https://github.com/espressif/esp-sr) 的离线语音唤醒，支持自定义唤醒词
-- 支持两种通信传输方式：[WebSocket](docs/websocket_zh.md) 和 [MQTT + UDP](docs/mqtt-udp_zh.md)
-- 采用 Opus 音频流，既支持传统的流式 ASR + LLM + TTS 方案，也支持 Realtime 端到端语音模型；具备 AEC 的硬件可实现实时全双工交互
-- 声纹识别，识别当前说话人的身份 [3D Speaker](https://github.com/modelscope/3D-Speaker)
-- OLED / LCD 显示屏，支持表情和丰富的情绪呈现；部分硬件支持摄像头视觉输入
-- 电量显示与电源管理
-- 提供 38 种界面语言；语音提示优先使用本地化资源，缺失时自动回退到英文
-- 支持 ESP32、ESP32-C3、ESP32-C5、ESP32-C6、ESP32-S3、ESP32-P4 芯片平台
-- 支持热点和 BluFi 两种 Wi-Fi 配网方式
-- 通过设备端 MCP 实现设备控制（音量、灯光、电机、GPIO 等）
-- 通过云端 MCP 扩展大模型能力（智能家居控制、PC桌面操作、知识搜索、邮件收发等）
-- 自定义唤醒词、字体、表情与聊天背景，支持网页端在线修改 ([自定义Assets生成器](https://github.com/78/xiaozhi-assets-generator))
+### 为什么二次开发？
+原版固件面向公版开发板与通用大模型，包含了大量通用驱动、38 种外语资源、彩色 Emoji、闲置协议栈以及产生 3.75MB 空洞的分区表，导致合盘固件高达 7.26MB 且在仅有 400KB 内存的 ESP32-C3 上极易因 TLS 握手产生内存碎片（OOM）。
 
-## 硬件
+**本项目对其进行了彻底的重构与深度优化**：
+1. **纯粹面向飞书生态**：剔除无关的公版协议栈与通用逻辑，打通与飞书智能网关的私有长连接交互。
+2. **硬件物理级瘦身**：剥离 38 种外语、彩色表情和无关屏幕/音频驱动，将全量固件合盘体积从 **7.26MB 压缩至 3.87MB（减少 46.6%）**，彻底抹平 Flash 0xFF 空洞。
+3. **极简纯黑白高对比度 UI**：针对 ST7789 240x320 竖屏量身打造纯黑白线框交互、随声音能量波动的原生频谱波浪、音量居中胶囊 HUD 以及 90 秒自适应息屏待机时钟。
+4. **C3 芯片级稳定性保障**：启用 MbedTLS 动态证书释放（归还 15KB+ 内部 SRAM）、ES8311 停播软静音消爆音、梯形电阻按键 40mV 迟滞防抖与 I2C 电池轮询节流。
 
-### 面包板手工制作实践
+---
 
-详见飞书文档教程：
+## 🛠️ 本项目做什么用的？
 
-👉 [《小智 AI 聊天机器人百科全书》](https://ccnphfhqs21z.feishu.cn/wiki/F5krwD16viZoF0kKkvDcrZNYnhb?from=from_copylink)
+`Letgo` 将 FoloToy AI Passport 变成一个高响应、长续航的**飞书实体语音助手**：
 
-面包板效果图如下：
+* **飞书即时语音对话**：通过 Push-to-Talk（单击 OK 键或长按）与飞书机器人流式语音对话，支持实时流式打断（短按 OK 键即停）。
+* **极简声音能量波浪**：屏幕中央常驻纯白直线，在说话录音和回复播报时实时转换为 15 频段音频能量频谱动效（纯 LVGL 矢量绘制，零图片依赖）。
+* **飞书网关自动发现与项目切换**：
+  * **网关选择**：局域网 mDNS/UDP 自动发现运行中的多个飞书网关服务，未连接时一键弹出选择列表；
+  * **多项目切换**：短按 ▲ 键即可弹出项目切换菜单，在不同的飞书智能体/工作空间之间无缝切换。
+* **随身时钟与智能节能**：
+  * 待命 15 秒无操作自动展示全屏极简大字体数字时钟；
+  * 待命 30 秒自动微光节能（20% 亮度）；
+  * 待命 90 秒深度息屏休眠（0% 亮度），按键或消息到达时 200ms 内平滑淡入唤醒。
 
-![面包板效果图](docs/v1/wiring2.jpg)
+---
 
-### 支持 138 个板卡目录、171 个固件发布变体（仅展示部分）
+## 🔗 项目依赖体系
 
-- <a href="https://oshwhub.com/li-chuang-kai-fa-ban/li-chuang-shi-zhan-pai-esp32-s3-kai-fa-ban" target="_blank" title="立创·实战派 ESP32-S3 开发板">立创·实战派 ESP32-S3 开发板</a>
-- <a href="https://github.com/espressif/esp-box" target="_blank" title="乐鑫 ESP32-S3-BOX-3">乐鑫 ESP32-S3-BOX-3</a>
-- <a href="https://docs.m5stack.com/zh_CN/core/CoreS3" target="_blank" title="M5Stack CoreS3">M5Stack CoreS3</a>
-- <a href="https://docs.m5stack.com/en/atom/Atomic%20Echo%20Base" target="_blank" title="AtomS3R + Echo Base">M5Stack AtomS3R + Echo Base</a>
-- <a href="https://gf.bilibili.com/item/detail/1108782064" target="_blank" title="神奇按钮 2.4">神奇按钮 2.4</a>
-- <a href="https://www.waveshare.net/shop/ESP32-S3-Touch-AMOLED-1.8.htm" target="_blank" title="微雪电子 ESP32-S3-Touch-AMOLED-1.8">微雪电子 ESP32-S3-Touch-AMOLED-1.8</a>
-- <a href="https://github.com/Xinyuan-LilyGO/T-Circle-S3" target="_blank" title="LILYGO T-Circle-S3">LILYGO T-Circle-S3</a>
-- <a href="https://oshwhub.com/tenclass01/xmini_c3" target="_blank" title="虾哥 Mini C3">虾哥 Mini C3</a>
-- <a href="https://oshwhub.com/movecall/cuican-ai-pendant-lights-up-y" target="_blank" title="Movecall CuiCan ESP32S3">璀璨·AI 吊坠</a>
-- <a href="https://github.com/WMnologo/xingzhi-ai" target="_blank" title="无名科技Nologo-星智-1.54">无名科技 Nologo-星智-1.54TFT</a>
-- <a href="https://www.seeedstudio.com/SenseCAP-Watcher-W1-A-p-5979.html" target="_blank" title="SenseCAP Watcher">SenseCAP Watcher</a>
-- <a href="https://www.bilibili.com/video/BV1BHJtz6E2S/" target="_blank" title="ESP-HI 超低成本机器狗">ESP-HI 超低成本机器狗</a>
+### 1. 服务端 / 调度依赖
+* **[antigravity-feishu-bot](https://github.com/Level6me/antigravity-feishu-bot)**：配套的飞书智能长连接网关服务。负责与飞书开放平台（Lark OpenAPI）建立 WebSocket 长连接，处理大模型对话、工具调用（MCP）、多维表格同步以及局域网 UDP 广播。
+* **飞书开放平台**：飞书企业自建应用 / 机器人凭证与权限。
 
-<div style="display: flex; justify-content: space-between;">
-  <a href="docs/v1/lichuang-s3.jpg" target="_blank" title="立创·实战派 ESP32-S3 开发板">
-    <img src="docs/v1/lichuang-s3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/espbox3.jpg" target="_blank" title="乐鑫 ESP32-S3-BOX3">
-    <img src="docs/v1/espbox3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/m5cores3.jpg" target="_blank" title="M5Stack CoreS3">
-    <img src="docs/v1/m5cores3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/atoms3r.jpg" target="_blank" title="AtomS3R + Echo Base">
-    <img src="docs/v1/atoms3r.jpg" width="240" />
-  </a>
-  <a href="docs/v1/magiclick.jpg" target="_blank" title="神奇按钮 2.4">
-    <img src="docs/v1/magiclick.jpg" width="240" />
-  </a>
-  <a href="docs/v1/waveshare.jpg" target="_blank" title="微雪电子 ESP32-S3-Touch-AMOLED-1.8">
-    <img src="docs/v1/waveshare.jpg" width="240" />
-  </a>
-  <a href="docs/v1/lilygo-t-circle-s3.jpg" target="_blank" title="LILYGO T-Circle-S3">
-    <img src="docs/v1/lilygo-t-circle-s3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/xmini-c3.jpg" target="_blank" title="虾哥 Mini C3">
-    <img src="docs/v1/xmini-c3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/movecall-cuican-esp32s3.jpg" target="_blank" title="CuiCan">
-    <img src="docs/v1/movecall-cuican-esp32s3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/wmnologo_xingzhi_1.54.jpg" target="_blank" title="无名科技Nologo-星智-1.54">
-    <img src="docs/v1/wmnologo_xingzhi_1.54.jpg" width="240" />
-  </a>
-  <a href="docs/v1/sensecap_watcher.jpg" target="_blank" title="SenseCAP Watcher">
-    <img src="docs/v1/sensecap_watcher.jpg" width="240" />
-  </a>
-  <a href="docs/v1/esp-hi.jpg" target="_blank" title="ESP-HI 超低成本机器狗">
-    <img src="docs/v1/esp-hi.jpg" width="240" />
-  </a>
-</div>
+### 2. 硬件规格依赖
+* **主控芯片**: ESP32-C3-MINI-1 (单核 RISC-V 32 位，最高 160MHz，400KB 内部 SRAM，8MB SPI Flash，**无外部 PSRAM**)
+* **音频编解码**: ES8311 (I2S 全双工，标准 16kHz 采样率)
+* **显示屏**: ST7789 240x320 4-line SPI 竖屏
+* **按键电路**: UP / DOWN / OK 三键共用 GPIO0 ADC1_CH0 梯形电阻分压网络
+* **电量计量**: CellWise CW2017 (I2C 接口，520mAh 专用放电曲线)
 
-## 软件
+### 3. ESP-IDF 组件与第三方库依赖
+固件构建基于 **ESP-IDF v6.1**（最低版本要求 `>= v6.0.1`）：
+* **网络与连接**:
+  * `78/esp-wifi-connect` (~3.3.1): Wi-Fi 连接管理、Web AP 动态配网门户。
+  * `78/esp-ml307` (~3.7.0): 提供网络与套接字统一抽象层接口。
+* **图形与界面**:
+  * `lvgl/lvgl` (~9.5.0) & `esp_lvgl_port` (~2.9.0): 轻量级嵌入式 GUI 图形栈。
+  * `78/xiaozhi-fonts` (~2.0.0): 内置点阵中英文字体与 Material Symbols 图标字库。
+  * `espressif/esp_image_effects` (^1.1.0): 屏幕色彩格式转换与图像裁剪。
+  * `espressif2022/esp_emote_expression` (^1.0.2): 嵌入式二维码轻量生成引擎。
+* **音频与外设**:
+  * `espressif/esp_codec_dev` (~1.6.2) & `espressif/esp_audio_codec` (~2.5.0): ES8311 驱动抽象与流控制。
+  * `espressif/esp_audio_effects` (~1.3.0): 音频重采样与数字增益。
+  * `espressif/button` (~4.2.1): 按键驱动与长按/双击事件分发。
+  * `espressif/esp_mmap_assets` (^1.4.0): Flash 只读静态资源映射。
 
-### 固件烧录
+---
 
-新手第一次操作建议先不要搭建开发环境，直接使用免开发环境烧录的固件。
+## ⚡ 深度细节优化亮点
 
-固件默认接入 [xiaozhi.me](https://xiaozhi.me) 官方服务器，个人用户注册账号可以免费使用 Qwen 实时模型。
+| 优化维度 | 优化措施 | 实际效果 |
+| :--- | :--- | :--- |
+| **固件合盘体积** | 紧凑型分区表重排：`assets`(1.5M) -> `ota_0`(3.0M) -> `ota_1`(3.0M) | 彻底消除 3.75MB 的 0xFF 空洞，合盘从 **7.26MB 锐减至 3.87MB (-46.6%)** |
+| **SRAM 极度抗崩** | 开启 `CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT=y` 与动态缓冲 | TLS 握手后即刻销毁证书结构体，归还 **15KB~20KB** 珍贵内部 SRAM |
+| **音频停播消爆** | 在关闭音频通道前先将 DAC 输出软静音归零 | 杜绝播放完毕和暂停时功放产生的瞬态“咔嗒”Pop 爆音 |
+| **按键迟滞抗噪** | 为 GPIO0 电阻梯按键引入 40mV 迟滞死区 (Deadband) | 彻底消除温漂与电池低压纹波引起的按键临界跳变与误触 |
+| **待机功耗与发热** | 电池读取 10s 缓存节流 + 200ms 自适应呼吸背光 + 90s 息屏休眠 | 物理 I2C 唤醒减少 90%，空闲时配合 Modem-Sleep 显著延长续航 |
 
-👉 [新手烧录固件教程](https://ccnphfhqs21z.feishu.cn/wiki/Zpz4wXBtdimBrLk25WdcXzxcnNS)
+*更多底层优化细节详见开发日志：[docs/OPTIMIZATION_LOG.md](docs/OPTIMIZATION_LOG.md)*。
 
-### 开发环境
+---
 
-- Cursor 或 VSCode
-- 安装 ESP-IDF 插件。最低要求为 [ESP-IDF v6.0.1](https://github.com/espressif/esp-idf/releases/tag/v6.0.1)，推荐 [ESP-IDF v6.1](https://github.com/espressif/esp-idf/releases/tag/v6.1)。不再支持 ESP-IDF 5.x
-- Linux 比 Windows 更好，编译速度快，也免去驱动问题的困扰
-- 本项目使用 Google C++ 代码风格，提交代码时请确保符合规范
+## 🚀 固件获取与刷机
 
-### 开发者文档
+### 1. 下载固件
+请前往本仓库的 [Releases 页面](https://github.com/Level6me/Letgo/releases) 下载最新发布的单文件全量合盘包：
+* 固件文件名：`FoloToy-AI-Passport-full.bin`
+* 适用起始烧录地址：`0x00000000`（单文件合盘，包含 Bootloader、分区表、静态 Assets 及主程序）
 
-- [自定义开发板指南](docs/custom-board_zh.md) - 学习如何为小智 AI 创建自定义开发板
-- [MCP 协议物联网控制用法说明](docs/mcp-usage_zh.md) - 了解如何通过 MCP 协议控制物联网设备
-- [MCP 协议交互流程](docs/mcp-protocol_zh.md) - 设备端 MCP 协议的实现方式
-- [MQTT + UDP 混合通信协议文档](docs/mqtt-udp_zh.md)
-- [一份详细的 WebSocket 通信协议文档](docs/websocket_zh.md)
+### 2. 刷机方式
 
-## 大模型配置
+#### 方式 A：Web 网页一键烧录（推荐）
+1. 使用 Chrome / Edge 浏览器打开 [ESP Web Flasher](https://espressif.github.io/esptool-js/) 或任意 Web 串口工具；
+2. 用 Type-C 数据线将 Passport 连接至电脑（按住 OK 键插入 USB 可强制进入下载模式）；
+3. 选择固件文件 `FoloToy-AI-Passport-full.bin`，偏移地址填写 `0x0`，点击烧录即可。
 
-如果你已经拥有一个小智 AI 聊天机器人设备，并且已接入官方服务器，可以登录 [xiaozhi.me](https://xiaozhi.me) 控制台进行配置。
+#### 方式 B：esptool 命令行烧录
+```bash
+esptool.py -p /dev/ttyACM0 -b 921600 --chip esp32c3 write_flash 0x0 FoloToy-AI-Passport-full.bin
+```
 
-👉 [后台操作视频教程（旧版界面）](https://www.bilibili.com/video/BV1jUCUY2EKM/)
+---
 
-## 相关开源项目
+## 📶 使用与配网指南
 
-在个人电脑上部署服务器，可以参考以下第三方开源的项目：
+1. **进入配网模式**：
+   * 首次开机或双击 ▼ 键查看设备信息；长按 ▼ 键可强制进入 Wi-Fi 配网热点模式。
+   * 手机连接名为 `Passport-XXXX` 的 Wi-Fi 热点，浏览器自动弹出配置页面（或访问 `192.168.4.1`），配置您路由器的 Wi-Fi 账密。
+2. **连接飞书网关**：
+   * 确保您的电脑或服务器已启动 `antigravity-feishu-bot` 网关服务，且与 Passport 处于同一局域网；
+   * 设备联网后会自动搜索局域网网关；若存在多个网关，屏幕将弹出选择菜单，短按 ▲/▼ 键选中后短按 OK 确认；
+   * 屏幕左上角显示 `[已连接]` 状态时，即可长按或单击 OK 键与飞书机器人开始对话！
 
-- [xinnan-tech/xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) Python 服务器
-- [joey-zhou/xiaozhi-esp32-server-java](https://github.com/joey-zhou/xiaozhi-esp32-server-java) Java 服务器
-- [AnimeAIChat/xiaozhi-server-go](https://github.com/AnimeAIChat/xiaozhi-server-go) Golang 服务器
-- [hackers365/xiaozhi-esp32-server-golang](https://github.com/hackers365/xiaozhi-esp32-server-golang) Golang 服务器
+---
 
-使用小智通信协议的第三方客户端项目：
+## 📄 开源许可证
 
-- [huangjunsen0406/py-xiaozhi](https://github.com/huangjunsen0406/py-xiaozhi) Python 客户端
-- [TOM88812/xiaozhi-android-client](https://github.com/TOM88812/xiaozhi-android-client) Android 客户端
-- [100askTeam/xiaozhi-linux](http://github.com/100askTeam/xiaozhi-linux) 百问科技提供的 Linux 客户端
-- [78/xiaozhi-sf32](https://github.com/78/xiaozhi-sf32) 思澈科技的蓝牙芯片固件
-- [QuecPython/solution-xiaozhiAI](https://github.com/QuecPython/solution-xiaozhiAI) 移远提供的 QuecPython 固件
-
-## 关于项目
-
-这是一个由虾哥开源的 ESP32 项目，以 MIT 许可证发布，允许任何人免费使用，修改或用于商业用途。
-
-我们希望通过这个项目，能够帮助大家了解 AI 硬件开发，将当下飞速发展的大语言模型应用到实际的硬件设备中。
-
-如果你有任何想法或建议，请随时提出 Issues 或加入 [Discord](https://discord.gg/C759fGMBcZ) 或 QQ 群：1011329060
-
-## Star History
-
-<a href="https://star-history.com/#78/xiaozhi-esp32&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date" />
- </picture>
-</a>
+本项目核心业务代码遵循 MIT 许可证开源。所包含的组件与第三方库版权归各自所有者所有。
