@@ -12,6 +12,7 @@ dependencies:
   esp_lvgl_port: ~2.9.0
   espressif/esp_mmap_assets: ^1.4.0
   espressif2022/esp_emote_expression: ^1.0.2
+  espressif/esp_image_effects: ^1.1.0
 
   ## Required IDF version
   idf:
