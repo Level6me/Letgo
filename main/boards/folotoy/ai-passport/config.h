@@ -42,10 +42,10 @@
 
 // ADC windows for the three ladder keys (kept next to the board pins).
 #define BSP_ADC_BUTTON_UP_MIN    0
-#define BSP_ADC_BUTTON_UP_MAX    150
-#define BSP_ADC_BUTTON_DOWN_MIN  150
-#define BSP_ADC_BUTTON_DOWN_MAX  447
-#define BSP_ADC_BUTTON_OK_MIN    447
+#define BSP_ADC_BUTTON_UP_MAX    130
+#define BSP_ADC_BUTTON_DOWN_MIN  170
+#define BSP_ADC_BUTTON_DOWN_MAX  420
+#define BSP_ADC_BUTTON_OK_MIN    480
 #define BSP_ADC_BUTTON_OK_MAX    1900
 
 // ============================================================================

@@ -10,7 +10,9 @@
                 "CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"partitions/v2/8m.csv\"",
                 "CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y",
                 "CONFIG_LV_USE_QRCODE=n",
-                "CONFIG_USE_ESP_WAKE_WORD=n"
+                "CONFIG_USE_ESP_WAKE_WORD=n",
+                "CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT=y",
+                "CONFIG_COMPILER_OPTIMIZATION_SIZE=y"
             ]
         }
     ]

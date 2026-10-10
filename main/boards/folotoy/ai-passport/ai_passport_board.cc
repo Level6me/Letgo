@@ -1192,6 +1192,8 @@ private:
     int64_t last_ok_tap_time_ = 0;
     esp_timer_handle_t menu_long_press_timer_ = nullptr;
     bool ok_menu_closed_by_long_press_ = false;
+    int cached_battery_soc_ = -1;
+    int64_t last_battery_read_time_ = 0;
 
     void StartMenuLongPressTimer() {
         if (!menu_long_press_timer_) {
@@ -2103,10 +2105,26 @@ public:
         if (!battery_ || !battery_->IsPresent()) {
             return false;
         }
+        int64_t now = esp_timer_get_time();
+        // 节流：10秒内直接使用缓存的电量结果，大幅减少I2C高频唤醒
+        if (cached_battery_soc_ >= 0 && (now - last_battery_read_time_ < 10000000LL)) {
+            level = cached_battery_soc_;
+            charging = false;
+            discharging = true;
+            return true;
+        }
         int soc = battery_->GetBatteryLevel();
         if (soc < 0) {
+            if (cached_battery_soc_ >= 0) {
+                level = cached_battery_soc_;
+                charging = false;
+                discharging = true;
+                return true;
+            }
             return false;
         }
+        cached_battery_soc_ = soc;
+        last_battery_read_time_ = now;
         level = soc;
         // CW2017 reports no charge state and the Passport has no charge-detect
         // GPIO, so report a plain (discharging) reading.
