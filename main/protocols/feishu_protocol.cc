@@ -521,7 +521,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         Application::GetInstance().Schedule([display, status, text]() {
             if (!display) return;
             if (status == "success" || status == "ok") {
-                char tip[128];
+                char tip[512];
                 if (!text.empty() && text != "(未检测到有效语音)") {
                     snprintf(tip, sizeof(tip), "✅ 已发送至飞书!\n「%s」", text.c_str());
                     display->SetChatMessage("user", text.c_str());
