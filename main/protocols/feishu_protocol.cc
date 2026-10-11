@@ -487,6 +487,8 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                     settings.SetString("gw_token", token->valuestring);
                 }
 
+                RequestProjectList();
+
                 Application::GetInstance().Schedule([display]() {
                     if (display) {
                         display->SetStatus("飞书控制台就绪");
@@ -558,14 +560,24 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
     } else if (type_str == "dashboard_sync") {
         auto project = cJSON_GetObjectItem(root, "project");
         auto status = cJSON_GetObjectItem(root, "status");
-        if (display && cJSON_IsString(project)) {
-            std::string info = "[" + std::string(project->valuestring) + "]";
-            if (cJSON_IsString(status)) {
-                info += " " + std::string(status->valuestring);
+        if (cJSON_IsString(project)) {
+            std::string proj_name = project->valuestring;
+            if (on_project_list_received_ && !proj_name.empty()) {
+                Application::GetInstance().Schedule([this, proj_name]() {
+                    if (on_project_list_received_) {
+                        on_project_list_received_({}, proj_name);
+                    }
+                });
             }
-            Application::GetInstance().Schedule([display, info]() {
-                display->SetStatus(info.c_str());
-            });
+            if (display) {
+                std::string info = "[" + proj_name + "]";
+                if (cJSON_IsString(status)) {
+                    info += " " + std::string(status->valuestring);
+                }
+                Application::GetInstance().Schedule([display, info]() {
+                    display->SetStatus(info.c_str());
+                });
+            }
         }
     } else if (type_str == "project_list") {
         std::vector<std::string> projects;
@@ -593,8 +605,15 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
     } else if (type_str == "project_switched") {
         auto proj = cJSON_GetObjectItem(root, "project");
         std::string name = cJSON_IsString(proj) ? proj->valuestring : "";
+        if (on_project_list_received_ && !name.empty()) {
+            Application::GetInstance().Schedule([this, name]() {
+                if (on_project_list_received_) {
+                    on_project_list_received_({}, name);
+                }
+            });
+        }
         Application::GetInstance().Schedule([display, name]() {
-            if (display) {
+            if (display && !name.empty()) {
                 std::string tip = "✅ 已切换至项目:\n" + name;
                 display->ShowNotification(tip.c_str(), 2500);
                 std::string st = "[" + name + "]";
@@ -608,6 +627,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 display->SetEmotion("neutral");
             });
         }
+        RequestProjectList();
     } else if (type_str == "ai_state") {
         auto state = cJSON_GetObjectItem(root, "state");
         auto detail = cJSON_GetObjectItem(root, "detail");

@@ -85,7 +85,7 @@ private:
     lv_obj_t* project_sub_label_ = nullptr;
     lv_obj_t* project_sep_ = nullptr;
     lv_obj_t* project_list_box_ = nullptr;
-    static constexpr size_t kMaxProjectItems = 6;
+    static constexpr size_t kMaxProjectItems = 12;
     lv_obj_t* project_item_containers_[kMaxProjectItems] = {nullptr};
     lv_obj_t* project_item_labels_[kMaxProjectItems] = {nullptr};
     lv_obj_t* project_item_lines_[kMaxProjectItems] = {nullptr};
@@ -810,18 +810,24 @@ public:
     }
 
     // ================== 项目切换弹窗 (单横线下划线指示) ==================
-    void ShowProjectList(const std::vector<std::string>& projects, const std::string& current_project) {
+    void ShowProjectList(const std::vector<std::string>& projects, const std::string& current_project, bool keep_selection = false) {
         DisplayLockGuard lock(this);
         HideGatewayList();
         HideSettingsList();
         SetStatus("");
         cached_projects_ = projects;
         current_project_name_ = current_project;
-        selected_project_index_ = 0;
-        for (size_t i = 0; i < cached_projects_.size(); i++) {
-            if (cached_projects_[i] == current_project_name_) {
-                selected_project_index_ = (int)i;
-                break;
+        if (!keep_selection) {
+            selected_project_index_ = 0;
+            for (size_t i = 0; i < cached_projects_.size(); i++) {
+                if (cached_projects_[i] == current_project_name_) {
+                    selected_project_index_ = (int)i;
+                    break;
+                }
+            }
+        } else {
+            if (selected_project_index_ >= (int)cached_projects_.size()) {
+                selected_project_index_ = cached_projects_.empty() ? 0 : (int)cached_projects_.size() - 1;
             }
         }
         if (project_modal_) {
@@ -2089,16 +2095,20 @@ public:
             }
         });
 
-        // 监听飞书服务端返回的项目列表
+        // 监听飞书服务端返回的项目列表与当前活跃项目
         Application::GetInstance().SetOnFeishuProjectsReceived([this](const std::vector<std::string>& projects, const std::string& current) {
             if (!projects.empty()) {
                 last_projects_ = projects;
             }
             if (!current.empty()) {
                 current_project_ = current;
+                if (display_) {
+                    std::string st = "[" + current_project_ + "]";
+                    display_->SetStatus(st.c_str());
+                }
             }
             if (display_ && display_->IsProjectListVisible()) {
-                display_->ShowProjectList(last_projects_, current_project_);
+                display_->ShowProjectList(last_projects_, current_project_, true);
             }
         });
     }
