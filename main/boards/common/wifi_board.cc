@@ -11,6 +11,7 @@
 #include <esp_network.h>
 #include <esp_log.h>
 #include <esp_mac.h>
+#include <esp_wifi.h>
 #include <utility>
 
 #include <material_symbols.h>
