@@ -63,12 +63,6 @@ void Application::Initialize() {
     // Setup the display
     auto display = board.GetDisplay();
     display->SetupUI();
-    // 立即挂载并应用 Flash assets 分区中的全量中文字库 (font_noto_sans_common_20_4)
-    auto& assets = Assets::GetInstance();
-    if (assets.partition_valid()) {
-        ESP_LOGI(TAG, "Applying full assets fonts and theme...");
-        assets.Apply();
-    }
     // Print board name/version info
     display->SetChatMessage("system", "Antigravity Feishu Console");
 
@@ -339,6 +333,13 @@ void Application::HandleActivationDoneEvent() {
 
     const bool has_error = !last_error_message_.empty();
     if (!has_error) {
+        // 安全应用 assets 分区中全量中文字库 (font_noto_sans_common_20_4)
+        auto& assets = Assets::GetInstance();
+        if (assets.partition_valid()) {
+            ESP_LOGI(TAG, "Applying assets fonts from partition...");
+            assets.Apply(false);
+        }
+
         auto display = Board::GetInstance().GetDisplay();
         display->ClearActivationCode();
         if (IsFeishuConnected()) {
