@@ -34,8 +34,9 @@ Assets::Assets() {
 #else
     strategy_ = std::make_unique<Assets::EmoteStrategy>();
 #endif
-    // Initialize the partition
-    InitializePartition();
+    // 开机阶段仅查找确认分区存在，不提前进行 1.5MB mmap 映射，
+    // 将宝贵的 Data MMU 页面和 DRAM 资源完整留给 WiFi 驱动与握手协议栈
+    FindPartition(this);
 }
 
 Assets::~Assets() { UnApplyPartition(); }
@@ -51,6 +52,9 @@ bool Assets::FindPartition(Assets* assets) {
 }
 
 bool Assets::Apply(bool refresh_display_theme) {
+    if (!partition_valid_) {
+        InitializePartition();
+    }
     return strategy_ ? strategy_->Apply(this, refresh_display_theme) : false;
 }
 

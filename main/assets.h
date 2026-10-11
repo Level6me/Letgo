@@ -41,7 +41,7 @@ public:
     bool Apply(bool refresh_display_theme = true);
     bool GetAssetData(const std::string& name, void*& ptr, size_t& size);
 
-    inline bool partition_valid() const { return partition_valid_; }
+    inline bool partition_valid() const { return partition_valid_ || partition_ != nullptr; }
     inline std::string default_assets_url() const { return default_assets_url_; }
     inline TextFontCapability text_font_capability() const { return text_font_capability_; }
 
