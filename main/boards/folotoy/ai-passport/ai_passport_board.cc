@@ -25,6 +25,8 @@
 
 #define TAG "AiPassport"
 
+LV_FONT_DECLARE(ai_passport_cjk_fallback);
+
 
 
 // Physical keys share one ADC pin through a resistor ladder (see config.h).
@@ -175,8 +177,18 @@ public:
         DisplayLockGuard lock(this);
         auto screen = lv_screen_active();
 
+        // 绑定内置高频中文字库作为备用字体 (Fallback)
+        auto& theme_manager = LvglThemeManager::GetInstance();
+        auto dark_theme = theme_manager.GetTheme("dark");
+        auto light_theme = theme_manager.GetTheme("light");
+        if (dark_theme && dark_theme->text_font()) {
+            dark_theme->text_font()->SetFallback(&ai_passport_cjk_fallback);
+        }
+        if (light_theme && light_theme->text_font()) {
+            light_theme->text_font()->SetFallback(&ai_passport_cjk_fallback);
+        }
+
         // 1. 强制应用纯黑白两色高对比度极简主题 (黑底白字，去除一切彩色气泡)
-        auto dark_theme = LvglThemeManager::GetInstance().GetTheme("dark");
         if (dark_theme) {
             dark_theme->set_background_color(lv_color_hex(0x000000));
             dark_theme->set_text_color(lv_color_hex(0xFFFFFF));

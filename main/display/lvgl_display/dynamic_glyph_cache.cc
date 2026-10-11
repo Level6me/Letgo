@@ -29,7 +29,9 @@ lv_font_t* DynamicGlyphCache::EnsureFont(const lv_font_t* base_font, uint8_t bpp
     font_.static_bitmap = 0;
     font_.underline_position = base_font->underline_position;
     font_.underline_thickness = base_font->underline_thickness;
-    font_.fallback = nullptr;
+    if (base_font->fallback != &font_) {
+        font_.fallback = base_font->fallback;
+    }
     font_.user_data = nullptr;
     font_.dsc = &dsc_;
     initialized_ = true;
