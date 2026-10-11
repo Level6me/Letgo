@@ -307,13 +307,13 @@ public:
         if (status_label_) {
             if (text_font) lv_obj_set_style_text_font(status_label_, text_font, 0);
             lv_obj_set_width(status_label_, 160);
-            lv_label_set_long_mode(status_label_, LV_LABEL_LONG_CLIP);
+            lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_style_text_align(status_label_, LV_TEXT_ALIGN_CENTER, 0);
         }
         if (notification_label_) {
             if (text_font) lv_obj_set_style_text_font(notification_label_, text_font, 0);
-            lv_obj_set_width(notification_label_, 216);
-            lv_label_set_long_mode(notification_label_, LV_LABEL_LONG_WRAP);
+            lv_obj_set_width(notification_label_, 160);
+            lv_label_set_long_mode(notification_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_style_text_align(notification_label_, LV_TEXT_ALIGN_CENTER, 0);
         }
 
@@ -335,13 +335,16 @@ public:
         gateway_title_label_ = lv_label_create(gateway_modal_);
         if (text_font) lv_obj_set_style_text_font(gateway_title_label_, text_font, 0);
         lv_obj_set_style_text_color(gateway_title_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_width(gateway_title_label_, 216);
+        lv_label_set_long_mode(gateway_title_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(gateway_title_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(gateway_title_label_, "[ Feishu Gateway ]");
 
         gateway_sub_label_ = lv_label_create(gateway_modal_);
         if (text_font) lv_obj_set_style_text_font(gateway_sub_label_, text_font, 0);
         lv_obj_set_style_text_color(gateway_sub_label_, lv_color_hex(0xAAAAAA), 0);
         lv_obj_set_width(gateway_sub_label_, 216);
-        lv_label_set_long_mode(gateway_sub_label_, LV_LABEL_LONG_CLIP);
+        lv_label_set_long_mode(gateway_sub_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(gateway_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(gateway_sub_label_, "UP/DOWN: Move   OK: Connect");
 
@@ -377,7 +380,7 @@ public:
             if (text_font) lv_obj_set_style_text_font(gateway_item_labels_[i], text_font, 0);
             lv_obj_set_style_text_color(gateway_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_width(gateway_item_labels_[i], 208);
-            lv_label_set_long_mode(gateway_item_labels_[i], LV_LABEL_LONG_CLIP);
+            lv_label_set_long_mode(gateway_item_labels_[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_style_text_align(gateway_item_labels_[i], LV_TEXT_ALIGN_CENTER, 0);
 
             // 选中选项单横线下划线指示 (宽120, 高2px, 零边距)
@@ -416,13 +419,16 @@ public:
         project_title_label_ = lv_label_create(project_modal_);
         if (text_font) lv_obj_set_style_text_font(project_title_label_, text_font, 0);
         lv_obj_set_style_text_color(project_title_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_width(project_title_label_, 216);
+        lv_label_set_long_mode(project_title_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(project_title_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(project_title_label_, "[ Projects ]");
 
         project_sub_label_ = lv_label_create(project_modal_);
         if (text_font) lv_obj_set_style_text_font(project_sub_label_, text_font, 0);
         lv_obj_set_style_text_color(project_sub_label_, lv_color_hex(0xAAAAAA), 0);
         lv_obj_set_width(project_sub_label_, 216);
-        lv_label_set_long_mode(project_sub_label_, LV_LABEL_LONG_CLIP);
+        lv_label_set_long_mode(project_sub_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(project_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(project_sub_label_, "UP/DOWN: Move   OK: Switch");
 
@@ -458,7 +464,7 @@ public:
             if (text_font) lv_obj_set_style_text_font(project_item_labels_[i], text_font, 0);
             lv_obj_set_style_text_color(project_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_width(project_item_labels_[i], 208);
-            lv_label_set_long_mode(project_item_labels_[i], LV_LABEL_LONG_CLIP);
+            lv_label_set_long_mode(project_item_labels_[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_style_text_align(project_item_labels_[i], LV_TEXT_ALIGN_CENTER, 0);
 
             // 选中选项单横线下划线指示 (宽120, 高2px, 零边距)
@@ -497,13 +503,16 @@ public:
         settings_title_label_ = lv_label_create(settings_modal_);
         if (text_font) lv_obj_set_style_text_font(settings_title_label_, text_font, 0);
         lv_obj_set_style_text_color(settings_title_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_width(settings_title_label_, 216);
+        lv_label_set_long_mode(settings_title_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(settings_title_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(settings_title_label_, "[ Settings / 设定 ]");
 
         settings_sub_label_ = lv_label_create(settings_modal_);
         if (text_font) lv_obj_set_style_text_font(settings_sub_label_, text_font, 0);
         lv_obj_set_style_text_color(settings_sub_label_, lv_color_hex(0xAAAAAA), 0);
         lv_obj_set_width(settings_sub_label_, 216);
-        lv_label_set_long_mode(settings_sub_label_, LV_LABEL_LONG_CLIP);
+        lv_label_set_long_mode(settings_sub_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(settings_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(settings_sub_label_, "UP/DOWN: Move   OK: Select");
 
@@ -539,7 +548,7 @@ public:
             if (text_font) lv_obj_set_style_text_font(settings_item_labels_[i], text_font, 0);
             lv_obj_set_style_text_color(settings_item_labels_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_width(settings_item_labels_[i], 208);
-            lv_label_set_long_mode(settings_item_labels_[i], LV_LABEL_LONG_CLIP);
+            lv_label_set_long_mode(settings_item_labels_[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_style_text_align(settings_item_labels_[i], LV_TEXT_ALIGN_CENTER, 0);
 
             // 选中选项单横线下划线指示 (宽120, 高2px, 零边距)
@@ -1494,15 +1503,15 @@ private:
                 }
                 std::string info = "IP: " + ip;
                 if (connected) {
-                    info += "\nGateway: Connected (" + gw + ")";
+                    info += " | Gateway: " + gw;
                 } else {
-                    info += "\nGateway: Disconnected";
+                    info += " | Gateway: Disconnected";
                 }
                 if (battery_level >= 0) {
-                    info += "\nBattery: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
+                    info += " | Bat: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
                 }
                 if (display_) {
-                    display_->ShowNotification(info.c_str(), 4500);
+                    display_->ShowNotification(info.c_str(), 6000);
                 }
                 break;
             }
@@ -1684,15 +1693,15 @@ private:
 
                 std::string info = "IP: " + ip;
                 if (connected) {
-                    info += "\nGateway: Connected (" + gw + ")";
+                    info += " | Gateway: " + gw;
                 } else {
-                    info += "\nGateway: Disconnected";
+                    info += " | Gateway: Disconnected";
                 }
                 if (battery_level >= 0) {
-                    info += "\nBattery: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
+                    info += " | Bat: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
                 }
                 if (display_) {
-                    display_->ShowNotification(info.c_str(), 4500);
+                    display_->ShowNotification(info.c_str(), 6000);
                 }
                 app.SendFeishuButtonEvent("down", "double_click");
             });

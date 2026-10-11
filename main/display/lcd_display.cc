@@ -563,6 +563,7 @@ void LcdDisplay::SetupUI() {
 
     notification_label_ = lv_label_create(status_bar_);
     lv_obj_set_width(notification_label_, LV_HOR_RES * 0.8);
+    lv_label_set_long_mode(notification_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(notification_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(notification_label_, lvgl_theme->text_color(), 0);
     lv_label_set_text(notification_label_, "");
@@ -606,6 +607,8 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_bg_color(low_battery_popup_, lvgl_theme->low_battery_color(), 0);
     lv_obj_set_style_radius(low_battery_popup_, lvgl_theme->spacing(4), 0);
     low_battery_label_ = lv_label_create(low_battery_popup_);
+    lv_obj_set_width(low_battery_label_, LV_HOR_RES * 0.85);
+    lv_label_set_long_mode(low_battery_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_text(low_battery_label_, Lang::Strings::BATTERY_NEED_CHARGE);
     lv_obj_set_style_text_color(low_battery_label_, lv_color_white(), 0);
     lv_obj_center(low_battery_label_);
@@ -1056,6 +1059,7 @@ void LcdDisplay::SetupUI() {
 
     notification_label_ = lv_label_create(status_bar_);
     lv_obj_set_width(notification_label_, LV_HOR_RES * 0.75);
+    lv_label_set_long_mode(notification_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(notification_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(notification_label_, lvgl_theme->text_color(), 0);
     lv_label_set_text(notification_label_, "");
@@ -1135,6 +1139,8 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_radius(low_battery_popup_, lvgl_theme->spacing(4), 0);
 
     low_battery_label_ = lv_label_create(low_battery_popup_);
+    lv_obj_set_width(low_battery_label_, LV_HOR_RES * 0.85);
+    lv_label_set_long_mode(low_battery_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_text(low_battery_label_, Lang::Strings::BATTERY_NEED_CHARGE);
     lv_obj_set_style_text_color(low_battery_label_, lv_color_white(), 0);
     lv_obj_center(low_battery_label_);
@@ -1305,6 +1311,7 @@ void LcdDisplay::ShowActivationCode(const char* code, const char* message) {
     if (activation_hint_label_ == nullptr) {
         activation_hint_label_ = lv_label_create(screen);
         lv_obj_set_width(activation_hint_label_, LV_HOR_RES - 20);
+        lv_label_set_long_mode(activation_hint_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_font(activation_hint_label_, text_font, 0);
         lv_obj_set_style_text_align(activation_hint_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(activation_hint_label_, theme->text_color(), 0);
@@ -1323,6 +1330,7 @@ void LcdDisplay::ShowActivationCode(const char* code, const char* message) {
     if (activation_code_label_ == nullptr) {
         activation_code_label_ = lv_label_create(screen);
         lv_obj_set_width(activation_code_label_, LV_HOR_RES - 20);
+        lv_label_set_long_mode(activation_code_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_font(activation_code_label_, text_font, 0);
         lv_obj_set_style_text_align(activation_code_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(activation_code_label_, theme->text_color(), 0);
