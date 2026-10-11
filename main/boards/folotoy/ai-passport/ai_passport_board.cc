@@ -1143,10 +1143,6 @@ public:
     }
 
     virtual void SetChatMessage(const char* role, const char* content) override {
-        if (strcmp(role, "system") == 0) {
-            ClearChatMessages();
-            return;
-        }
         SpiLcdDisplay::SetChatMessage(role, content);
     }
 
@@ -2008,10 +2004,11 @@ public:
                 int64_t now = esp_timer_get_time();
                 auto state = Application::GetInstance().GetDeviceState();
 
-                // 若设备处于非空闲态（正在聆听/思考/播报），自动退出时钟看板恢复会话显示
-                if (state != kDeviceStateIdle && state != kDeviceStateStarting) {
+                // 只有在设备完全就绪处于空闲态（且飞书已连接）时才允许进入待机时钟看板；
+                // 设备正在启动初始化、WiFi配网、断网重连、或对话中，绝不覆盖屏幕网络状态与配网提示
+                if (state != kDeviceStateIdle || !Application::GetInstance().IsFeishuConnected()) {
                     if (self->is_in_standby_clock_) {
-                        self->TouchActivity();
+                        self->ExitStandbyClock();
                     }
                     return;
                 }
