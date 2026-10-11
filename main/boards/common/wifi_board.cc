@@ -58,6 +58,8 @@ void WifiBoard::StartNetwork() {
     config.language = Lang::CODE;
     config.show_ota_config = true;
     config.show_sleep_config = true;
+    config.station_scan_min_interval_seconds = 3;
+    config.station_failure_retry_cnt = 5;
 
     // Set a DHCP hostname so the router shows a friendly name instead of "espressif".
     // Uses the same "<prefix>-<last 2 MAC bytes>" scheme as the config AP SSID.
@@ -68,6 +70,19 @@ void WifiBoard::StartNetwork() {
         config.station_hostname = hostname;
     }
     wifi_manager.Initialize(config);
+
+    // 设置中国国家码（信道 1~13 全频段支持，自动功率与信道规范）
+    wifi_country_t country = {
+        .cc = "CN",
+        .schan = 1,
+        .nchan = 13,
+        .max_tx_power = 20,
+        .policy = WIFI_COUNTRY_POLICY_AUTO,
+    };
+    esp_err_t err = esp_wifi_set_country(&country);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set WiFi country code: %s", esp_err_to_name(err));
+    }
 
     // Set unified event callback - forward to NetworkEvent with SSID data
     wifi_manager.SetEventCallback([this](WifiEvent event, const std::string& data) {
@@ -82,7 +97,7 @@ void WifiBoard::StartNetwork() {
                 OnNetworkEvent(NetworkEvent::Connected, data);
                 break;
             case WifiEvent::Disconnected:
-                OnNetworkEvent(NetworkEvent::Disconnected);
+                OnNetworkEvent(NetworkEvent::Disconnected, data);
                 break;
             case WifiEvent::ConfigModeEnter:
                 OnNetworkEvent(NetworkEvent::WifiConfigModeEnter);
@@ -104,7 +119,12 @@ void WifiBoard::TryWifiConnect() {
     if (have_ssid) {
         // Start connection attempt with timeout
         ESP_LOGI(TAG, "Starting WiFi connection attempt");
-        esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
+        if (connect_timer_) {
+            esp_timer_stop(connect_timer_);
+            esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
+        }
+        // 握手连接阶段关闭省电模式，全功率收发避免握手丢包
+        esp_wifi_set_ps(WIFI_PS_NONE);
         WifiManager::GetInstance().StartStation();
     } else {
         // No SSID configured, enter config mode
@@ -133,7 +153,11 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             ESP_LOGI(TAG, "WiFi connecting to %s", data.c_str());
             break;
         case NetworkEvent::Disconnected:
-            ESP_LOGW(TAG, "WiFi disconnected");
+            if (!data.empty()) {
+                ESP_LOGW(TAG, "WiFi disconnected, reason code: %s", data.c_str());
+            } else {
+                ESP_LOGW(TAG, "WiFi disconnected");
+            }
             break;
         case NetworkEvent::WifiConfigModeEnter:
             ESP_LOGI(TAG, "WiFi config mode entered");
@@ -142,8 +166,12 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
         case NetworkEvent::WifiConfigModeExit:
             ESP_LOGI(TAG, "WiFi config mode exited");
             in_config_mode_ = false;
-            // Try to connect with the new credentials
-            TryWifiConnect();
+            // 调度到主任务执行，并校验若尚未连接才重试，彻底杜绝递归重入
+            Application::GetInstance().Schedule([this]() {
+                if (!WifiManager::GetInstance().IsConnected()) {
+                    TryWifiConnect();
+                }
+            });
             break;
         default:
             break;

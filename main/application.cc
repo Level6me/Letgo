@@ -110,6 +110,7 @@ void Application::Initialize() {
 
         switch (event) {
             case NetworkEvent::Scanning:
+                display->SetStatus(Lang::Strings::SCANNING_WIFI);
                 display->ShowNotification(Lang::Strings::SCANNING_WIFI, 30000);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
@@ -122,6 +123,7 @@ void Application::Initialize() {
                     std::string msg = Lang::Strings::CONNECT_TO;
                     msg += data;
                     msg += "...";
+                    display->SetStatus(msg.c_str());
                     display->ShowNotification(msg.c_str(), 30000);
                 }
                 break;
@@ -129,11 +131,18 @@ void Application::Initialize() {
             case NetworkEvent::Connected: {
                 std::string msg = Lang::Strings::CONNECTED_TO;
                 msg += data;
-                display->ShowNotification(msg.c_str(), 30000);
+                display->SetStatus(msg.c_str());
+                display->ShowNotification(msg.c_str(), 3000);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_CONNECTED);
                 break;
             }
             case NetworkEvent::Disconnected:
+                if (!data.empty()) {
+                    std::string tip = "WiFi未连接 (" + data + ")";
+                    display->SetStatus(tip.c_str());
+                } else {
+                    display->SetStatus("WiFi未连接");
+                }
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::WifiConfigModeEnter:
