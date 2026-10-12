@@ -1205,8 +1205,8 @@ private:
     Cw2017BatteryMonitor* battery_;
     int64_t last_activity_time_ = 0;
     uint8_t current_brightness_ = 100;
-    esp_timer_handle_t dim_timer_ = nullptr;
-    bool is_push_to_talk_active_ = false;
+    bool is_recording_active_ = false;
+    bool is_ptt_mode_ = false;
     int64_t record_start_time_ = 0;
     esp_timer_handle_t record_timer_ = nullptr;
     bool is_in_standby_clock_ = false;
@@ -1317,14 +1317,14 @@ private:
                 .callback = [](void* arg) {
                     auto self = static_cast<AiPassportBoard*>(arg);
                     auto cur_state = Application::GetInstance().GetDeviceState();
-                    if (!self->is_push_to_talk_active_ && cur_state != kDeviceStateListening) {
+                    if (!self->is_recording_active_ && cur_state != kDeviceStateListening) {
                         return;
                     }
                     int64_t elapsed_us = esp_timer_get_time() - self->record_start_time_;
                     int elapsed_sec = (int)(elapsed_us / 1000000);
                     Application::GetInstance().Schedule([self, elapsed_sec, elapsed_us]() {
                         auto state = Application::GetInstance().GetDeviceState();
-                        if (!self->is_push_to_talk_active_ && state != kDeviceStateListening) {
+                        if (!self->is_recording_active_ && state != kDeviceStateListening) {
                             return;
                         }
                         if (elapsed_sec >= 60) {
@@ -1357,10 +1357,11 @@ private:
 
     void StopPushToTalk(int64_t elapsed_us) {
         auto& app = Application::GetInstance();
-        if (!is_push_to_talk_active_ && app.GetDeviceState() != kDeviceStateListening) {
+        if (!is_recording_active_ && app.GetDeviceState() != kDeviceStateListening) {
             return;
         }
-        is_push_to_talk_active_ = false;
+        is_recording_active_ = false;
+        is_ptt_mode_ = false;
         StopRecordTimer();
 
         // 录音结束，立即恢复屏幕正中心水平直线
@@ -1753,8 +1754,8 @@ private:
             }
 
             // 3. 如果当前已经在录音中，用户再次按下 OK 键意味着【停止录音并发送】（单击切换对话模式下的第二次点击）
-            if (state == kDeviceStateListening) {
-                ESP_LOGI(TAG, "OK pressed while listening: Stopping recording...");
+            if (is_recording_active_ || state == kDeviceStateListening) {
+                ESP_LOGI(TAG, "OK pressed while recording: Stopping recording and sending...");
                 ok_stop_listening_on_down_ = true;
                 int64_t elapsed_us = esp_timer_get_time() - record_start_time_;
                 StopPushToTalk(elapsed_us);
@@ -1763,7 +1764,8 @@ private:
 
             // 4. 如果当前设备处于待命状态，按下瞬间立即启动录音！
             if (state == kDeviceStateIdle || state == kDeviceStateStarting) {
-                is_push_to_talk_active_ = true;
+                is_recording_active_ = true;
+                is_ptt_mode_ = true; // 先假设为按住对讲，若抬手很快则切为 Toggle
                 wave_frame_ = 0;
                 record_start_time_ = esp_timer_get_time();
                 if (display_) {
@@ -1856,8 +1858,9 @@ private:
 
             // 若有未连接的飞书网关，优先连接
             if (app.HasPendingFeishuGateway()) {
-                if (is_push_to_talk_active_ || app.GetDeviceState() == kDeviceStateListening) {
-                    is_push_to_talk_active_ = false;
+                if (is_recording_active_ || app.GetDeviceState() == kDeviceStateListening) {
+                    is_recording_active_ = false;
+                    is_ptt_mode_ = false;
                     StopRecordTimer();
                     if (app.GetDeviceState() == kDeviceStateListening) {
                         app.StopListening();
@@ -1872,14 +1875,15 @@ private:
             }
 
             // 对讲录音判定：
-            if (is_push_to_talk_active_) {
+            if (is_recording_active_) {
                 // 检查是否为快速双击（双击请求重播上条）
                 if (duration_ms < 350) {
                     int64_t interval_since_last_tap = (now - last_ok_tap_time_) / 1000;
                     last_ok_tap_time_ = now;
                     if (interval_since_last_tap > 50 && interval_since_last_tap < 400) {
                         // 判定为双击：取消录音并触发重播
-                        is_push_to_talk_active_ = false;
+                        is_recording_active_ = false;
+                        is_ptt_mode_ = false;
                         StopRecordTimer();
                         if (app.GetDeviceState() == kDeviceStateListening) {
                             app.StopListening();
@@ -1898,14 +1902,14 @@ private:
                 }
 
                 if (duration_ms < 350) {
-                    // 【短按点击 / Quick Tap】（完美兼容原项目 ToggleChat 体验！）
-                    // 用户轻点了一下 OK 键：保持录音状态，用户可从容讲话，说完再次点击 OK 键结束
-                    is_push_to_talk_active_ = false; // 脱离长按按住模式，进入持续点击对话模式
+                    // 【短按点击 / Quick Tap】（Toggle 对话模式）
+                    // 用户轻点了一下 OK 键：切为持续点击对话模式，用户可从容讲话，说完再次点击 OK 键结束
+                    is_ptt_mode_ = false; 
                     if (display_) {
                         display_->SetStatus("[录音中 (点击OK结束)]");
                     }
                     ESP_LOGI(TAG, "OK quick tap: Keep recording in toggle mode (duration %lld ms)", duration_ms);
-                } else {
+                } else if (is_ptt_mode_) {
                     // 【长按对讲 / PTT: Push-to-Talk】（纯正对讲机体验！）
                     // 用户按住说话，松手立即结束对讲并发送给飞书
                     int64_t elapsed_us = now - record_start_time_;
@@ -2050,7 +2054,7 @@ public:
 
                 // 超过 15 秒无操作且处于待命状态，自动进入/刷新随身时钟看板
                 if (now - self->last_activity_time_ >= 15 * 1000000LL &&
-                    !self->is_push_to_talk_active_) {
+                    !self->is_recording_active_) {
                     Application::GetInstance().Schedule([self]() {
                         self->EnterOrRefreshStandbyClock();
                     });

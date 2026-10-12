@@ -269,6 +269,20 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
+            // Feishu response watchdog: if awaiting reply exceeds 15 seconds, reset to standby
+            if (feishu_awaiting_reply_) {
+                feishu_awaiting_ticks_++;
+                if (feishu_awaiting_ticks_ >= 15) {
+                    ESP_LOGW(TAG, "Feishu awaiting reply timed out (15s), resetting to standby");
+                    SetFeishuAwaitingReply(false);
+                    if (GetDeviceState() == kDeviceStateIdle || GetDeviceState() == kDeviceStateUnknown) {
+                        display->SetStatus(IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
+                        display->SetEmotion("neutral");
+                        display->ShowNotification("Response timeout\nBack to Standby", 2500);
+                    }
+                }
+            }
+
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
@@ -1507,6 +1521,7 @@ void Application::SetOnFeishuProjectsReceived(std::function<void(const std::vect
 
 void Application::SetFeishuAwaitingReply(bool awaiting) {
     feishu_awaiting_reply_ = awaiting;
+    feishu_awaiting_ticks_ = 0;
 }
 
 bool Application::IsFeishuAwaitingReply() const {

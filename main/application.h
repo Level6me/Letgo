@@ -171,6 +171,7 @@ private:
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     bool feishu_awaiting_reply_ = false;    // Whether waiting for Feishu response after push-to-talk
+    int feishu_awaiting_ticks_ = 0;         // Watchdog counter for Feishu response timeout
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
