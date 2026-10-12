@@ -57,6 +57,7 @@ std::string SystemInfo::GetUserAgent() {
 }
 
 esp_err_t SystemInfo::PrintTaskCpuUsage(TickType_t xTicksToWait) {
+#if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
     #define ARRAY_SIZE_OFFSET 5
     TaskStatus_t *start_array = NULL, *end_array = NULL;
     UBaseType_t start_array_size, end_array_size;
@@ -139,12 +140,20 @@ exit:    //Common return path
     free(start_array);
     free(end_array);
     return ret;
+#else
+    ESP_LOGW(TAG, "CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS is disabled");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 void SystemInfo::PrintTaskList() {
+#if CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
     char buffer[1000];
     vTaskList(buffer);
     ESP_LOGI(TAG, "Task list: \n%s", buffer);
+#else
+    ESP_LOGW(TAG, "CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS is disabled");
+#endif
 }
 
 void SystemInfo::PrintHeapStats() {
