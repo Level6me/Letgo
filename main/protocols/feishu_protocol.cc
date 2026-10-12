@@ -8,6 +8,7 @@
 #include <wifi_manager.h>
 
 #include <esp_log.h>
+#include <esp_app_desc.h>
 #include <cJSON.h>
 #include <cstring>
 #include <sys/socket.h>
@@ -347,8 +348,20 @@ void FeishuProtocol::SendHandshake() {
     cJSON_AddStringToObject(root, "type", "handshake");
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
     cJSON_AddStringToObject(root, "device_id", SystemInfo::GetMacAddress().c_str());
-    cJSON_AddStringToObject(root, "version", "2.0.0");
+
+    auto app_desc = esp_app_get_description();
+    cJSON_AddStringToObject(root, "version", app_desc->version);
+    cJSON_AddStringToObject(root, "compile_date", app_desc->date);
+    cJSON_AddStringToObject(root, "compile_time", app_desc->time);
+    cJSON_AddStringToObject(root, "idf_version", app_desc->idf_ver);
+    cJSON_AddStringToObject(root, "project", app_desc->project_name);
     cJSON_AddStringToObject(root, "board", "ai-passport");
+
+    Settings settings("feishu", false);
+    std::string fw_tag = settings.GetString("fw_tag");
+    if (!fw_tag.empty()) {
+        cJSON_AddStringToObject(root, "firmware_tag", fw_tag.c_str());
+    }
 
     char* json_str = cJSON_PrintUnformatted(root);
     SendText(json_str);
@@ -699,6 +712,21 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         Application::GetInstance().Schedule([t, c]() {
             Application::GetInstance().Alert(t.c_str(), c.c_str(), "danger");
         });
+    } else if (type_str == "ota_upgrade") {
+        auto url_item = cJSON_GetObjectItem(root, "url");
+        auto ver_item = cJSON_GetObjectItem(root, "version");
+        if (cJSON_IsString(url_item)) {
+            std::string url = url_item->valuestring;
+            std::string ver = cJSON_IsString(ver_item) ? ver_item->valuestring : "";
+            ESP_LOGI(TAG, "Received OTA upgrade request: url=%s, ver=%s", url.c_str(), ver.c_str());
+            if (!ver.empty()) {
+                Settings settings("feishu", true);
+                settings.SetString("fw_tag", ver);
+            }
+            Application::GetInstance().Schedule([url, ver]() {
+                Application::GetInstance().UpgradeFirmware(url, ver);
+            });
+        }
     }
 
     if (on_incoming_json_) {

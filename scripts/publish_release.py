@@ -47,24 +47,47 @@ def main():
         return
 
     # 2. 上传二进制资产
-    file_name = "FoloToy-AI-Passport-full.bin"
-    with open(bin_path, 'rb') as f:
-        content = f.read()
+    assets_to_upload = [("FoloToy-AI-Passport-full.bin", bin_path)]
 
-    print(f"[Release] Uploading {file_name} ({len(content)} bytes)...")
-    upload_headers = {
-        "Authorization": f"token {token}",
-        "Content-Type": "application/octet-stream",
-        "User-Agent": "Letgo-Release-Bot"
-    }
-    upload_url_full = f"{upload_url}?name={file_name}"
-    try:
-        req_up = urllib.request.Request(upload_url_full, data=content, headers=upload_headers, method='POST')
-        with urllib.request.urlopen(req_up) as resp:
-            print(f"[Release] Successfully published {file_name} to release {tag}!")
-    except urllib.error.HTTPError as e:
-        err = e.read().decode('utf-8')
-        print(f"[Release] Failed to upload asset: {e.code} - {err}")
+    for ota_name in ["build/xiaozhi.bin", "build/xiao_zhi.bin"]:
+        if os.path.exists(ota_name):
+            assets_to_upload.append(("FoloToy-AI-Passport-ota.bin", ota_name))
+            break
+
+    if len(assets_to_upload) == 1 and os.path.exists(bin_path):
+        try:
+            with open(bin_path, 'rb') as f:
+                f.seek(0x1A0000)
+                ota_slice = f.read()
+            if len(ota_slice) > 0 and ota_slice[0] == 0xe9:
+                slice_path = "build/extracted_ota.bin"
+                os.makedirs("build", exist_ok=True)
+                with open(slice_path, 'wb') as f_out:
+                    f_out.write(ota_slice)
+                assets_to_upload.append(("FoloToy-AI-Passport-ota.bin", slice_path))
+        except Exception as e:
+            print(f"[Release] Extract OTA slice fallback warning: {e}")
+
+    for file_name, file_path in assets_to_upload:
+        if not os.path.exists(file_path):
+            continue
+        with open(file_path, 'rb') as f:
+            content = f.read()
+
+        print(f"[Release] Uploading {file_name} ({len(content)} bytes)...")
+        upload_headers = {
+            "Authorization": f"token {token}",
+            "Content-Type": "application/octet-stream",
+            "User-Agent": "Letgo-Release-Bot"
+        }
+        upload_url_full = f"{upload_url}?name={file_name}"
+        try:
+            req_up = urllib.request.Request(upload_url_full, data=content, headers=upload_headers, method='POST')
+            with urllib.request.urlopen(req_up) as resp:
+                print(f"[Release] Successfully published {file_name} to release {tag}!")
+        except urllib.error.HTTPError as e:
+            err = e.read().decode('utf-8')
+            print(f"[Release] Failed to upload asset {file_name}: {e.code} - {err}")
 
 if __name__ == '__main__':
     main()
