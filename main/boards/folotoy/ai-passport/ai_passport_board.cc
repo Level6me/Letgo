@@ -1205,6 +1205,7 @@ private:
     Cw2017BatteryMonitor* battery_;
     int64_t last_activity_time_ = 0;
     uint8_t current_brightness_ = 100;
+    esp_timer_handle_t dim_timer_ = nullptr;
     bool is_recording_active_ = false;
     bool is_ptt_mode_ = false;
     int64_t record_start_time_ = 0;
