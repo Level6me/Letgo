@@ -9,8 +9,10 @@
 #include "assets/lang_config.h"
 #include "cw2017_battery_monitor.h"
 #include "settings.h"
+#include "system_info.h"
 
 #include <esp_log.h>
+#include <esp_ota_ops.h>
 #include <esp_lcd_panel_vendor.h>
 #include <button_adc.h>
 #include <esp_adc/adc_oneshot.h>
@@ -107,6 +109,15 @@ private:
     int selected_settings_index_ = 0;
     esp_timer_handle_t settings_hide_timer_ = nullptr;
 
+    // 设备信息独立弹窗 (宽228, 高260, 黑白高对比)
+    lv_obj_t* device_info_modal_ = nullptr;
+    lv_obj_t* device_info_title_label_ = nullptr;
+    lv_obj_t* device_info_sub_label_ = nullptr;
+    lv_obj_t* device_info_sep_ = nullptr;
+    lv_obj_t* device_info_content_box_ = nullptr;
+    lv_obj_t* device_info_text_label_ = nullptr;
+    esp_timer_handle_t device_info_hide_timer_ = nullptr;
+
     // 主题反色状态 (false: 纯黑底白字; true: 纯白底黑字)
     bool is_theme_inverted_ = false;
 
@@ -164,6 +175,11 @@ public:
             esp_timer_stop(settings_hide_timer_);
             esp_timer_delete(settings_hide_timer_);
             settings_hide_timer_ = nullptr;
+        }
+        if (device_info_hide_timer_) {
+            esp_timer_stop(device_info_hide_timer_);
+            esp_timer_delete(device_info_hide_timer_);
+            device_info_hide_timer_ = nullptr;
         }
         if (wave_timer_) {
             lv_timer_delete(wave_timer_);
@@ -569,7 +585,63 @@ public:
             lv_obj_add_flag(settings_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
         }
 
-        // 11. 真实 FFT 频谱 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
+        // 11. 设备信息独立展示弹窗 (宽228, 高260, 黑白高对比)
+        device_info_modal_ = lv_obj_create(screen);
+        lv_obj_set_size(device_info_modal_, 228, 260);
+        lv_obj_align(device_info_modal_, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_color(device_info_modal_, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(device_info_modal_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(device_info_modal_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_border_width(device_info_modal_, 2, 0);
+        lv_obj_set_style_radius(device_info_modal_, 8, 0);
+        lv_obj_set_style_pad_all(device_info_modal_, 6, 0);
+        lv_obj_set_flex_flow(device_info_modal_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(device_info_modal_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(device_info_modal_, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_add_flag(device_info_modal_, LV_OBJ_FLAG_HIDDEN);
+
+        device_info_title_label_ = lv_label_create(device_info_modal_);
+        if (text_font) lv_obj_set_style_text_font(device_info_title_label_, text_font, 0);
+        lv_obj_set_style_text_color(device_info_title_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_width(device_info_title_label_, 216);
+        lv_label_set_long_mode(device_info_title_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(device_info_title_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(device_info_title_label_, "[ Device Info / 设备信息 ]");
+
+        device_info_sub_label_ = lv_label_create(device_info_modal_);
+        if (text_font) lv_obj_set_style_text_font(device_info_sub_label_, text_font, 0);
+        lv_obj_set_style_text_color(device_info_sub_label_, lv_color_hex(0xAAAAAA), 0);
+        lv_obj_set_width(device_info_sub_label_, 216);
+        lv_label_set_long_mode(device_info_sub_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(device_info_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(device_info_sub_label_, "Press OK: Back / 返回");
+
+        device_info_sep_ = lv_obj_create(device_info_modal_);
+        lv_obj_set_size(device_info_sep_, 214, 1);
+        lv_obj_set_style_bg_color(device_info_sep_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(device_info_sep_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(device_info_sep_, 0, 0);
+        lv_obj_set_style_margin_top(device_info_sep_, 2, 0);
+        lv_obj_set_style_margin_bottom(device_info_sep_, 4, 0);
+
+        device_info_content_box_ = lv_obj_create(device_info_modal_);
+        lv_obj_set_size(device_info_content_box_, 216, 176);
+        lv_obj_set_style_bg_opa(device_info_content_box_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(device_info_content_box_, 0, 0);
+        lv_obj_set_style_pad_all(device_info_content_box_, 4, 0);
+        lv_obj_set_flex_flow(device_info_content_box_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(device_info_content_box_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        lv_obj_set_scrollbar_mode(device_info_content_box_, LV_SCROLLBAR_MODE_OFF);
+
+        device_info_text_label_ = lv_label_create(device_info_content_box_);
+        if (text_font) lv_obj_set_style_text_font(device_info_text_label_, text_font, 0);
+        lv_obj_set_style_text_color(device_info_text_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_width(device_info_text_label_, 208);
+        lv_obj_set_style_text_line_space(device_info_text_label_, 6, 0);
+        lv_label_set_long_mode(device_info_text_label_, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(device_info_text_label_, LV_TEXT_ALIGN_LEFT, 0);
+
+        // 12. 真实 FFT 频谱 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
         if (!wave_timer_) {
             wave_timer_ = lv_timer_create([](lv_timer_t* timer) {
                 auto self = static_cast<AiPassportDisplay*>(lv_timer_get_user_data(timer));
@@ -1063,14 +1135,83 @@ public:
         }
     }
 
+    // ================== 设备信息独立展示弹窗 ==================
+    void ShowDeviceInfo(const std::string& fw_version, const std::string& ip,
+                        const std::string& gw, const std::string& mac,
+                        int bat_level, int bat_mv) {
+        DisplayLockGuard lock(this);
+        HideGatewayList();
+        HideProjectList();
+        HideSettingsList();
+        SetStatus("");
+
+        if (device_info_text_label_) {
+            std::string content;
+            content += "固件: " + fw_version + "\n";
+            content += "IP: " + ip + "\n";
+            content += "网关: " + gw + "\n";
+            content += "MAC: " + mac + "\n";
+            if (bat_level >= 0) {
+                content += "电池: " + std::to_string(bat_level) + "% (" + std::to_string(bat_mv) + "mV)";
+            } else {
+                content += "电池: --";
+            }
+            lv_label_set_text(device_info_text_label_, content.c_str());
+        }
+
+        if (device_info_modal_) {
+            lv_obj_remove_flag(device_info_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+        ResetDeviceInfoHideTimer();
+    }
+
+    void ResetDeviceInfoHideTimer() {
+        if (!device_info_hide_timer_) {
+            esp_timer_create_args_t d_timer_args = {
+                .callback = [](void* arg) {
+                    auto self = static_cast<AiPassportDisplay*>(arg);
+                    self->HideDeviceInfo();
+                    Application::GetInstance().Schedule([self]() {
+                        auto& app = Application::GetInstance();
+                        self->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                        self->ShowIdleStraightLine();
+                    });
+                },
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "dev_hide_timer",
+                .skip_unhandled_events = true
+            };
+            esp_timer_create(&d_timer_args, &device_info_hide_timer_);
+        }
+        esp_timer_stop(device_info_hide_timer_);
+        esp_timer_start_once(device_info_hide_timer_, 15000000);
+    }
+
+    void HideDeviceInfo() {
+        DisplayLockGuard lock(this);
+        if (device_info_hide_timer_) {
+            esp_timer_stop(device_info_hide_timer_);
+        }
+        if (device_info_modal_) {
+            lv_obj_add_flag(device_info_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    bool IsDeviceInfoVisible() const {
+        if (!device_info_modal_) return false;
+        return !lv_obj_has_flag(device_info_modal_, LV_OBJ_FLAG_HIDDEN);
+    }
+
     bool IsAnyMenuVisible() const {
-        return IsGatewayListVisible() || IsProjectListVisible() || IsSettingsListVisible();
+        return IsGatewayListVisible() || IsProjectListVisible() || IsSettingsListVisible() || IsDeviceInfoVisible();
     }
 
     void HideAllMenus() {
         HideGatewayList();
         HideProjectList();
         HideSettingsList();
+        HideDeviceInfo();
     }
 
     // 纯黑白双色主题自适应渲染
@@ -1145,6 +1286,16 @@ public:
                 if (settings_item_labels_[i]) lv_obj_set_style_text_color(settings_item_labels_[i], fg_col, 0);
                 if (settings_item_lines_[i]) lv_obj_set_style_bg_color(settings_item_lines_[i], fg_col, 0);
             }
+        }
+
+        // 设备信息展示弹窗
+        if (device_info_modal_) {
+            lv_obj_set_style_bg_color(device_info_modal_, bg_col, 0);
+            lv_obj_set_style_border_color(device_info_modal_, fg_col, 0);
+            if (device_info_title_label_) lv_obj_set_style_text_color(device_info_title_label_, fg_col, 0);
+            if (device_info_sub_label_) lv_obj_set_style_text_color(device_info_sub_label_, sub_col, 0);
+            if (device_info_sep_) lv_obj_set_style_bg_color(device_info_sep_, fg_col, 0);
+            if (device_info_text_label_) lv_obj_set_style_text_color(device_info_text_label_, fg_col, 0);
         }
     }
 
@@ -1462,6 +1613,34 @@ private:
         }
     }
 
+    void ShowDeviceInfoModal() {
+        if (!display_) return;
+        auto& app = Application::GetInstance();
+        auto& wifi = WifiManager::GetInstance();
+        std::string ip = wifi.GetIpAddress();
+        if (ip.empty()) ip = "None";
+
+        bool connected = app.IsFeishuConnected();
+        std::string gw = connected ? app.GetFeishuGatewayIp() : "未连接";
+        if (gw.empty()) gw = "未连接";
+
+        int battery_level = -1;
+        int battery_mv = -1;
+        if (battery_ && battery_->IsPresent()) {
+            battery_level = battery_->GetBatteryLevel();
+            battery_mv = battery_->GetBatteryVoltageMv();
+        }
+
+        std::string mac = SystemInfo::GetMacAddress();
+
+        auto app_desc = esp_app_get_description();
+        Settings settings("feishu", false);
+        std::string fw_tag = settings.GetString("fw_tag");
+        std::string fw_ver = !fw_tag.empty() ? fw_tag : (app_desc ? app_desc->version : "Unknown");
+
+        display_->ShowDeviceInfo(fw_ver, ip, gw, mac, battery_level, battery_mv);
+    }
+
     void ExecuteSettingItem(int index) {
         switch (index) {
             case 0: // 亮度调节
@@ -1494,30 +1673,7 @@ private:
                 if (display_) {
                     display_->HideSettingsList();
                 }
-                auto& app = Application::GetInstance();
-                auto& wifi = WifiManager::GetInstance();
-                std::string ip = wifi.GetIpAddress();
-                if (ip.empty()) ip = "None";
-                bool connected = app.IsFeishuConnected();
-                std::string gw = app.GetFeishuGatewayIp();
-                int battery_level = -1;
-                int battery_mv = -1;
-                if (battery_ && battery_->IsPresent()) {
-                    battery_level = battery_->GetBatteryLevel();
-                    battery_mv = battery_->GetBatteryVoltageMv();
-                }
-                std::string info = "IP: " + ip;
-                if (connected) {
-                    info += " | Gateway: " + gw;
-                } else {
-                    info += " | Gateway: Disconnected";
-                }
-                if (battery_level >= 0) {
-                    info += " | Bat: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
-                }
-                if (display_) {
-                    display_->ShowNotification(info.c_str(), 6000);
-                }
+                ShowDeviceInfoModal();
                 break;
             }
             case 6: // 重启设备
@@ -1595,6 +1751,13 @@ private:
         up->OnClick([this]() {
             TouchActivity("UP");
             if (display_) {
+                if (display_->IsDeviceInfoVisible()) {
+                    display_->HideDeviceInfo();
+                    display_->ShowIdleStraightLine();
+                    auto& app = Application::GetInstance();
+                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                    return;
+                }
                 if (display_->IsGatewayListVisible()) {
                     display_->MoveGatewaySelectionUp();
                     return;
@@ -1656,6 +1819,13 @@ private:
         down->OnClick([this]() {
             TouchActivity("DOWN");
             if (display_) {
+                if (display_->IsDeviceInfoVisible()) {
+                    display_->HideDeviceInfo();
+                    display_->ShowIdleStraightLine();
+                    auto& app = Application::GetInstance();
+                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                    return;
+                }
                 if (display_->IsGatewayListVisible()) {
                     display_->MoveGatewaySelectionDown();
                     return;
@@ -1680,35 +1850,8 @@ private:
         down->OnDoubleClick([this]() {
             TouchActivity("DOWN_DOUBLE");
             Application::GetInstance().Schedule([this]() {
-                auto& app = Application::GetInstance();
-                auto& wifi = WifiManager::GetInstance();
-                std::string ip = wifi.GetIpAddress();
-                if (ip.empty()) {
-                    ip = "None";
-                }
-                bool connected = app.IsFeishuConnected();
-                std::string gw = app.GetFeishuGatewayIp();
-
-                int battery_level = -1;
-                int battery_mv = -1;
-                if (battery_ && battery_->IsPresent()) {
-                    battery_level = battery_->GetBatteryLevel();
-                    battery_mv = battery_->GetBatteryVoltageMv();
-                }
-
-                std::string info = "IP: " + ip;
-                if (connected) {
-                    info += " | Gateway: " + gw;
-                } else {
-                    info += " | Gateway: Disconnected";
-                }
-                if (battery_level >= 0) {
-                    info += " | Bat: " + std::to_string(battery_level) + "% (" + std::to_string(battery_mv) + "mV)";
-                }
-                if (display_) {
-                    display_->ShowNotification(info.c_str(), 6000);
-                }
-                app.SendFeishuButtonEvent("down", "double_click");
+                ShowDeviceInfoModal();
+                Application::GetInstance().SendFeishuButtonEvent("down", "double_click");
             });
         });
         down->OnLongPress([this]() {
@@ -1824,6 +1967,13 @@ private:
                     auto& app = Application::GetInstance();
                     display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
                     display_->ShowIdleStraightLine();
+                    return;
+                }
+                if (display_->IsDeviceInfoVisible()) {
+                    display_->HideDeviceInfo();
+                    display_->ShowIdleStraightLine();
+                    auto& app = Application::GetInstance();
+                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
                     return;
                 }
                 if (display_->IsGatewayListVisible()) {
