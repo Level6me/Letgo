@@ -289,7 +289,7 @@ public:
         lv_obj_set_flex_flow(bottom_volume_box_, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(bottom_volume_box_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_scrollbar_mode(bottom_volume_box_, LV_SCROLLBAR_MODE_OFF);
-        lv_obj_align(bottom_volume_box_, LV_ALIGN_BOTTOM_MID, 0, -16);
+        lv_obj_align(bottom_volume_box_, LV_ALIGN_TOP_MID, 0, 4);
         lv_obj_add_flag(bottom_volume_box_, LV_OBJ_FLAG_HIDDEN);
 
         volume_icon_label_ = lv_label_create(bottom_volume_box_);
@@ -364,7 +364,7 @@ public:
         lv_obj_set_width(gateway_title_label_, 216);
         lv_label_set_long_mode(gateway_title_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(gateway_title_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(gateway_title_label_, "[ Feishu Gateway ]");
+        lv_label_set_text(gateway_title_label_, "[ 网关服务连接 ]");
 
         gateway_sub_label_ = lv_label_create(gateway_modal_);
         if (text_font) lv_obj_set_style_text_font(gateway_sub_label_, text_font, 0);
@@ -372,7 +372,7 @@ public:
         lv_obj_set_width(gateway_sub_label_, 216);
         lv_label_set_long_mode(gateway_sub_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(gateway_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(gateway_sub_label_, "UP/DOWN: Move   OK: Connect");
+        lv_label_set_text(gateway_sub_label_, "上下键选择   OK键连接 (长按退出)");
 
         gateway_sep_ = lv_obj_create(gateway_modal_);
         lv_obj_set_size(gateway_sep_, 214, 1);
@@ -387,6 +387,8 @@ public:
         lv_obj_set_style_bg_opa(gateway_list_box_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(gateway_list_box_, 0, 0);
         lv_obj_set_style_pad_all(gateway_list_box_, 0, 0);
+        lv_obj_set_style_pad_top(gateway_list_box_, 4, 0);
+        lv_obj_set_style_pad_bottom(gateway_list_box_, 24, 0);
         lv_obj_set_flex_flow(gateway_list_box_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(gateway_list_box_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_scrollbar_mode(gateway_list_box_, LV_SCROLLBAR_MODE_OFF);
@@ -448,7 +450,7 @@ public:
         lv_obj_set_width(project_title_label_, 216);
         lv_label_set_long_mode(project_title_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(project_title_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(project_title_label_, "[ Projects ]");
+        lv_label_set_text(project_title_label_, "[ 项目切换 ]");
 
         project_sub_label_ = lv_label_create(project_modal_);
         if (text_font) lv_obj_set_style_text_font(project_sub_label_, text_font, 0);
@@ -456,7 +458,7 @@ public:
         lv_obj_set_width(project_sub_label_, 216);
         lv_label_set_long_mode(project_sub_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(project_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(project_sub_label_, "UP/DOWN: Move   OK: Switch");
+        lv_label_set_text(project_sub_label_, "上下键选择   OK键切换 (长按退出)");
 
         project_sep_ = lv_obj_create(project_modal_);
         lv_obj_set_size(project_sep_, 214, 1);
@@ -471,6 +473,8 @@ public:
         lv_obj_set_style_bg_opa(project_list_box_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(project_list_box_, 0, 0);
         lv_obj_set_style_pad_all(project_list_box_, 0, 0);
+        lv_obj_set_style_pad_top(project_list_box_, 4, 0);
+        lv_obj_set_style_pad_bottom(project_list_box_, 24, 0);
         lv_obj_set_flex_flow(project_list_box_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(project_list_box_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_scrollbar_mode(project_list_box_, LV_SCROLLBAR_MODE_OFF);
@@ -532,7 +536,7 @@ public:
         lv_obj_set_width(settings_title_label_, 216);
         lv_label_set_long_mode(settings_title_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(settings_title_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(settings_title_label_, "[ Settings / 设定 ]");
+        lv_label_set_text(settings_title_label_, "[ 系统设置 ]");
 
         settings_sub_label_ = lv_label_create(settings_modal_);
         if (text_font) lv_obj_set_style_text_font(settings_sub_label_, text_font, 0);
@@ -540,7 +544,7 @@ public:
         lv_obj_set_width(settings_sub_label_, 216);
         lv_label_set_long_mode(settings_sub_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(settings_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(settings_sub_label_, "UP/DOWN: Move   OK: Select");
+        lv_label_set_text(settings_sub_label_, "上下键选择   OK键确认 (长按退出)");
 
         settings_sep_ = lv_obj_create(settings_modal_);
         lv_obj_set_size(settings_sep_, 214, 1);
@@ -555,6 +559,8 @@ public:
         lv_obj_set_style_bg_opa(settings_list_box_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(settings_list_box_, 0, 0);
         lv_obj_set_style_pad_all(settings_list_box_, 0, 0);
+        lv_obj_set_style_pad_top(settings_list_box_, 4, 0);
+        lv_obj_set_style_pad_bottom(settings_list_box_, 24, 0);
         lv_obj_set_flex_flow(settings_list_box_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(settings_list_box_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_scrollbar_mode(settings_list_box_, LV_SCROLLBAR_MODE_OFF);
@@ -616,7 +622,7 @@ public:
         lv_obj_set_width(device_info_title_label_, 216);
         lv_label_set_long_mode(device_info_title_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(device_info_title_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(device_info_title_label_, "[ Device Info / 设备信息 ]");
+        lv_label_set_text(device_info_title_label_, "[ 设备信息 ]");
 
         device_info_sub_label_ = lv_label_create(device_info_modal_);
         if (text_font) lv_obj_set_style_text_font(device_info_sub_label_, text_font, 0);
@@ -624,7 +630,7 @@ public:
         lv_obj_set_width(device_info_sub_label_, 216);
         lv_label_set_long_mode(device_info_sub_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(device_info_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(device_info_sub_label_, "Press OK: Back / 返回");
+        lv_label_set_text(device_info_sub_label_, "按 OK 键返回");
 
         device_info_sep_ = lv_obj_create(device_info_modal_);
         lv_obj_set_size(device_info_sep_, 214, 1);
@@ -671,14 +677,14 @@ public:
         lv_obj_set_style_text_color(ota_title_label_, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_width(ota_title_label_, 212);
         lv_obj_set_style_text_align(ota_title_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(ota_title_label_, "[ OTA Upgrade / 固件升级 ]");
+        lv_label_set_text(ota_title_label_, "[ 固件升级 ]");
 
         ota_sub_label_ = lv_label_create(ota_modal_);
         if (text_font) lv_obj_set_style_text_font(ota_sub_label_, text_font, 0);
         lv_obj_set_style_text_color(ota_sub_label_, lv_color_hex(0xAAAAAA), 0);
         lv_obj_set_width(ota_sub_label_, 212);
         lv_obj_set_style_text_align(ota_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(ota_sub_label_, "Do not power off / 请勿断电");
+        lv_label_set_text(ota_sub_label_, "正在升级，请勿断电");
 
         ota_sep_ = lv_obj_create(ota_modal_);
         lv_obj_set_size(ota_sep_, 212, 1);
@@ -735,8 +741,8 @@ public:
             lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
         }
 
-        // 13. 初始化并应用当前主题纯黑白样式
-        ApplyThemeStyles();
+        // 13. 初始化并应用保存的主题纯黑白样式
+        ApplySavedThemeInvert();
     }
 
     void OnWaveTimerTick() {
@@ -777,6 +783,7 @@ public:
         snprintf(buf, sizeof(buf), "%d%%", volume);
         lv_label_set_text(volume_text_label_, buf);
 
+        lv_obj_move_foreground(bottom_volume_box_);
         lv_obj_remove_flag(bottom_volume_box_, LV_OBJ_FLAG_HIDDEN);
 
         if (volume_hide_timer_) {
@@ -906,7 +913,7 @@ public:
     void ShowGatewayConnecting(const std::string& name) {
         DisplayLockGuard lock(this);
         if (gateway_sub_label_) {
-            std::string text = "Connecting: " + name + "\nPlease confirm on Feishu";
+            std::string text = "正在连接: " + name + "\n请在飞书端点击确认";
             lv_label_set_text(gateway_sub_label_, text.c_str());
         }
     }
@@ -915,7 +922,7 @@ public:
         if (!gateway_modal_) return;
 
         if (cached_gateways_.empty()) {
-            lv_label_set_text(gateway_sub_label_, "Searching... Please wait");
+            lv_label_set_text(gateway_sub_label_, "正在搜索网关... 请稍候");
             for (size_t i = 0; i < kMaxGatewayItems; i++) {
                 if (gateway_item_containers_[i]) {
                     lv_obj_add_flag(gateway_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
@@ -924,7 +931,7 @@ public:
             return;
         }
 
-        lv_label_set_text(gateway_sub_label_, "UP/DOWN: Move   OK: Connect (Hold: Exit)");
+        lv_label_set_text(gateway_sub_label_, "上下键选择   OK键连接 (长按退出)");
 
         if (selected_gateway_index_ >= (int)cached_gateways_.size()) {
             selected_gateway_index_ = (int)cached_gateways_.size() - 1;
@@ -952,6 +959,9 @@ public:
                     lv_obj_set_style_border_width(gateway_item_containers_[i], 2, 0);
                     lv_obj_set_style_border_color(gateway_item_containers_[i], line_col, 0);
                     lv_obj_scroll_to_view(gateway_item_containers_[i], LV_ANIM_ON);
+                    if (gateway_item_lines_[i]) {
+                        lv_obj_scroll_to_view(gateway_item_lines_[i], LV_ANIM_ON);
+                    }
                 } else {
                     lv_obj_add_flag(gateway_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
                     lv_obj_set_style_border_width(gateway_item_containers_[i], 0, 0);
@@ -1058,7 +1068,7 @@ public:
         if (!project_modal_) return;
 
         if (cached_projects_.empty()) {
-            lv_label_set_text(project_sub_label_, "No projects found");
+            lv_label_set_text(project_sub_label_, "未发现可用项目");
             for (size_t i = 0; i < kMaxProjectItems; i++) {
                 if (project_item_containers_[i]) {
                     lv_obj_add_flag(project_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
@@ -1067,7 +1077,7 @@ public:
             return;
         }
 
-        lv_label_set_text(project_sub_label_, "UP/DOWN: Move   OK: Switch (Hold: Exit)");
+        lv_label_set_text(project_sub_label_, "上下键选择   OK键切换 (长按退出)");
 
         if (selected_project_index_ >= (int)cached_projects_.size()) {
             selected_project_index_ = (int)cached_projects_.size() - 1;
@@ -1098,6 +1108,9 @@ public:
                     lv_obj_set_style_border_width(project_item_containers_[i], 2, 0);
                     lv_obj_set_style_border_color(project_item_containers_[i], line_col, 0);
                     lv_obj_scroll_to_view(project_item_containers_[i], LV_ANIM_ON);
+                    if (project_item_lines_[i]) {
+                        lv_obj_scroll_to_view(project_item_lines_[i], LV_ANIM_ON);
+                    }
                 } else {
                     lv_obj_add_flag(project_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
                     lv_obj_set_style_border_width(project_item_containers_[i], 0, 0);
@@ -1185,16 +1198,16 @@ public:
         if (!settings_modal_) return;
 
         static const char* kSettingsTitles[kMaxSettingsItems] = {
-            "Brightness",
-            "Volume (音量)",
-            "Theme (模式切换)",
-            "Gateway (服务连接)",
-            "WiFi (重新配网)",
-            "Device Info (设备信息)",
-            "Reboot (重启设备)"
+            "屏幕亮度",
+            "音量调节",
+            "黑白主题切换",
+            "网关服务连接",
+            "重新配置网络",
+            "查看设备信息",
+            "重启系统设备"
         };
 
-        lv_label_set_text(settings_sub_label_, "UP/DOWN: Move   OK: Select (Hold: Exit)");
+        lv_label_set_text(settings_sub_label_, "上下键选择   OK键确认 (长按退出)");
 
         for (size_t i = 0; i < kMaxSettingsItems; i++) {
             if (!settings_item_containers_[i]) continue;
@@ -1209,6 +1222,9 @@ public:
                 lv_obj_set_style_border_width(settings_item_containers_[i], 2, 0);
                 lv_obj_set_style_border_color(settings_item_containers_[i], line_col, 0);
                 lv_obj_scroll_to_view(settings_item_containers_[i], LV_ANIM_ON);
+                if (settings_item_lines_[i]) {
+                    lv_obj_scroll_to_view(settings_item_lines_[i], LV_ANIM_ON);
+                }
             } else {
                 lv_obj_add_flag(settings_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
                 lv_obj_set_style_border_width(settings_item_containers_[i], 0, 0);
@@ -1317,6 +1333,27 @@ public:
         if (screen) {
             lv_obj_set_style_bg_color(screen, bg_col, 0);
         }
+        if (container_) {
+            lv_obj_set_style_bg_color(container_, bg_col, 0);
+            lv_obj_set_style_bg_opa(container_, LV_OPA_COVER, 0);
+        }
+        if (top_bar_) {
+            lv_obj_set_style_bg_color(top_bar_, bg_col, 0);
+            lv_obj_set_style_bg_opa(top_bar_, LV_OPA_COVER, 0);
+        }
+        if (content_) {
+            lv_obj_set_style_bg_color(content_, bg_col, 0);
+            lv_obj_set_style_bg_opa(content_, LV_OPA_COVER, 0);
+        }
+        if (network_label_) {
+            lv_obj_set_style_text_color(network_label_, fg_col, 0);
+        }
+        if (battery_label_) {
+            lv_obj_set_style_text_color(battery_label_, fg_col, 0);
+        }
+        if (mute_label_) {
+            lv_obj_set_style_text_color(mute_label_, fg_col, 0);
+        }
         if (center_line_obj_) {
             lv_obj_set_style_bg_color(center_line_obj_, fg_col, 0);
         }
@@ -1408,7 +1445,7 @@ public:
         ApplyThemeStyles();
         Settings settings("display", true);
         settings.SetInt("invert_color", is_theme_inverted_ ? 1 : 0);
-        ShowNotification(is_theme_inverted_ ? "Theme: White" : "Theme: Black", 1500);
+        ShowNotification(is_theme_inverted_ ? "白色主题" : "黑色主题", 1500);
     }
 
     void ApplySavedThemeInvert() {
@@ -1512,6 +1549,7 @@ private:
     Cw2017BatteryMonitor* battery_;
     int64_t last_activity_time_ = 0;
     uint8_t current_brightness_ = 100;
+    uint8_t user_brightness_ = 100;
     esp_timer_handle_t dim_timer_ = nullptr;
     bool is_recording_active_ = false;
     bool is_ptt_mode_ = false;
@@ -1539,7 +1577,7 @@ private:
                         if (self->display_ && self->display_->IsAnyMenuVisible()) {
                             self->ok_menu_closed_by_long_press_ = true;
                             self->display_->HideAllMenus();
-                            self->display_->ShowNotification("Main screen", 1200);
+                            self->display_->ShowNotification("已返回主界面", 1200);
                             auto& app = Application::GetInstance();
                             self->display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
                             self->display_->ShowIdleStraightLine();
@@ -1570,7 +1608,7 @@ private:
             app.AbortSpeaking(kAbortReasonNone);
             app.GetAudioService().ResetDecoder();
             if (display_) {
-                display_->ShowNotification("Barge-in", 1200);
+                display_->ShowNotification("已打断", 1200);
                 display_->SetStatus("[待命]");
                 display_->ShowIdleStraightLine();
             }
@@ -1584,26 +1622,10 @@ private:
         if (display_->IsAnyMenuVisible()) return;
         is_in_standby_clock_ = true;
 
-        time_t now = time(NULL);
-        struct tm* tm_now = localtime(&now);
-
-        char time_buf[32];
-        if (tm_now && tm_now->tm_year >= 2025 - 1900) {
-            strftime(time_buf, sizeof(time_buf), "%H:%M:%S", tm_now);
-        } else {
-            int uptime_sec = (int)(esp_timer_get_time() / 1000000);
-            snprintf(time_buf, sizeof(time_buf), "%02d:%02d:%02d",
-                     uptime_sec / 3600, (uptime_sec % 3600) / 60, uptime_sec % 60);
-        }
-
         auto& app = Application::GetInstance();
         bool feishu_online = app.IsFeishuConnected();
 
-        char status_buf[64];
-        snprintf(status_buf, sizeof(status_buf), "%s  %s",
-                 time_buf, feishu_online ? "[已连接]" : "[待命]");
-
-        display_->SetStatus(status_buf);
+        display_->SetStatus(feishu_online ? "[已连接]" : "[待命]");
         display_->ShowIdleStraightLine();
         display_->SetWaveTimerPaused(true);
     }
@@ -1683,7 +1705,7 @@ private:
             app.StopFeishuVoice();
             app.SetFeishuAwaitingReply(false);
             if (display_) {
-                display_->ShowNotification("Audio too short", 1500);
+                display_->ShowNotification("说话时间太短", 1500);
                 display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
             }
             return;
@@ -1697,9 +1719,9 @@ private:
 
         if (display_) {
             char tip[64];
-            snprintf(tip, sizeof(tip), "Audio sent (%ds)\nProcessing...", duration_sec);
+            snprintf(tip, sizeof(tip), "语音已发送 (%d秒)\n正在思考中...", duration_sec);
             display_->ShowNotification(tip, 1500);
-            display_->SetStatus("[Thinking...]");
+            display_->SetStatus("[思考中...]");
         }
     }
 
@@ -1740,16 +1762,19 @@ private:
     }
 
     void CycleBrightness() {
-        if (current_brightness_ >= 100) {
-            current_brightness_ = 20;
+        if (user_brightness_ >= 100) {
+            user_brightness_ = 20;
         } else {
-            current_brightness_ += 20;
-            if (current_brightness_ > 100) current_brightness_ = 100;
+            user_brightness_ += 20;
+            if (user_brightness_ > 100) user_brightness_ = 100;
         }
-        GetBacklight()->SetBrightness(current_brightness_);
+        current_brightness_ = user_brightness_;
+        GetBacklight()->SetBrightness(user_brightness_, true);
+        Settings settings("display", true);
+        settings.SetInt("brightness", user_brightness_);
         if (display_) {
             char buf[32];
-            snprintf(buf, sizeof(buf), "[屏幕亮度: %d%%]", current_brightness_);
+            snprintf(buf, sizeof(buf), "[屏幕亮度: %d%%]", user_brightness_);
             display_->ShowNotification(buf, 1500);
         }
     }
@@ -1821,7 +1846,7 @@ private:
             case 4: // 网络配网
                 if (display_) {
                     display_->HideSettingsList();
-                    display_->ShowNotification("Entering WiFi Config...", 3000);
+                    display_->ShowNotification("正在进入配网模式...", 3000);
                 }
                 EnterWifiConfigMode();
                 break;
@@ -1835,7 +1860,7 @@ private:
             case 6: // 重启设备
                 if (display_) {
                     display_->HideSettingsList();
-                    display_->ShowNotification("Rebooting...", 2000);
+                    display_->ShowNotification("正在重启...", 2000);
                 }
                 Application::GetInstance().Schedule([]() {
                     Application::GetInstance().Reboot();
@@ -1857,9 +1882,9 @@ private:
 
     void TouchActivity(const char* btn_name = nullptr) {
         last_activity_time_ = esp_timer_get_time();
-        if (current_brightness_ < 100) {
-            current_brightness_ = 100;
-            GetBacklight()->SetBrightness(100);
+        if (current_brightness_ < user_brightness_) {
+            current_brightness_ = user_brightness_;
+            GetBacklight()->SetBrightness(user_brightness_);
         }
         if (is_in_standby_clock_) {
             ExitStandbyClock();
@@ -1949,13 +1974,13 @@ private:
                 auto& app = Application::GetInstance();
                 if (!app.IsFeishuConnected()) {
                     if (display_) {
-                        display_->ShowNotification("Searching gateway...", 3000);
+                        display_->ShowNotification("正在搜索网关...", 3000);
                         display_->SetStatus("[待命]");
                     }
                     app.TriggerFeishuDiscovery();
                 } else {
                     if (display_) {
-                        display_->ShowNotification("Refreshing...", 2000);
+                        display_->ShowNotification("正在刷新...", 2000);
                     }
                     app.SendFeishuButtonEvent("up", "double_click");
                 }
@@ -1965,7 +1990,7 @@ private:
             TouchActivity("UP_LONG");
             Application::GetInstance().Schedule([this]() {
                 if (display_) {
-                    display_->ShowNotification("Entering WiFi Config...", 3000);
+                    display_->ShowNotification("正在进入配网模式...", 3000);
                 }
                 EnterWifiConfigMode();
             });
@@ -2042,7 +2067,7 @@ private:
                 app.AbortSpeaking(kAbortReasonNone);
                 app.GetAudioService().ResetDecoder();
                 if (display_) {
-                    display_->ShowNotification("Barge-in", 1200);
+                    display_->ShowNotification("已打断", 1200);
                     display_->SetStatus("[待命]");
                     display_->ShowIdleStraightLine();
                 }
@@ -2082,7 +2107,7 @@ private:
             if (display_ && display_->IsAnyMenuVisible()) {
                 ok_menu_closed_by_long_press_ = true;
                 display_->HideAllMenus();
-                display_->ShowNotification("Main screen", 1200);
+                display_->ShowNotification("已返回主界面", 1200);
                 auto& app = Application::GetInstance();
                 display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
                 display_->ShowIdleStraightLine();
@@ -2119,7 +2144,7 @@ private:
                 // 如果按住达到 500ms（兜底长按逻辑），关闭菜单返回主界面
                 if (duration_ms >= 500) {
                     display_->HideAllMenus();
-                    display_->ShowNotification("Main screen", 1200);
+                    display_->ShowNotification("已返回主界面", 1200);
                     auto& app = Application::GetInstance();
                     display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
                     display_->ShowIdleStraightLine();
@@ -2143,7 +2168,7 @@ private:
                     if (!selected_proj.empty()) {
                         current_project_ = selected_proj;
                         char buf[64];
-                        snprintf(buf, sizeof(buf), "Switched to:\n%s", selected_proj.c_str());
+                        snprintf(buf, sizeof(buf), "已切换至:\n%s", selected_proj.c_str());
                         display_->ShowNotification(buf, 1500);
                         Application::GetInstance().Schedule([selected_proj]() {
                             Application::GetInstance().SwitchFeishuProject(selected_proj);
@@ -2195,7 +2220,7 @@ private:
                         if (display_) {
                             display_->SetRecording(false);
                             display_->ShowIdleStraightLine();
-                            display_->ShowNotification("Requesting replay...", 1500);
+                            display_->ShowNotification("正在请求重播...", 1500);
                         }
                         if (app.IsFeishuConnected()) {
                             app.SendFeishuButtonEvent("ok", "double_click");
@@ -2326,6 +2351,11 @@ public:
         InitializeDisplay();
         InitializeButtons();
         GetBacklight()->RestoreBrightness();
+        user_brightness_ = GetBacklight()->brightness();
+        if (user_brightness_ < 20 || user_brightness_ > 100) {
+            user_brightness_ = 100;
+        }
+        current_brightness_ = user_brightness_;
 
         Settings settings("display", true);
         settings.SetString("theme", "dark");
@@ -2371,10 +2401,11 @@ public:
                             ESP_LOGI(TAG, "Screen turned off due to 90s inactivity");
                         }
                     } else if (now - self->last_activity_time_ >= 30 * 1000000LL) {
-                        if (self->current_brightness_ > 20) {
-                            self->current_brightness_ = 20;
-                            self->GetBacklight()->SetBrightness(20);
-                            ESP_LOGI(TAG, "Screen dimmed to 20%% due to 30s inactivity");
+                        uint8_t dim_target = (self->user_brightness_ > 20) ? 20 : 10;
+                        if (self->current_brightness_ > dim_target) {
+                            self->current_brightness_ = dim_target;
+                            self->GetBacklight()->SetBrightness(dim_target);
+                            ESP_LOGI(TAG, "Screen dimmed to %d%% due to 30s inactivity", dim_target);
                         }
                     }
                 }
