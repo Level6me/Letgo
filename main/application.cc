@@ -1298,8 +1298,12 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         vTaskDelay(pdMS_TO_TICKS(3000));
         return false;
     } else {
-        // Upgrade success, reboot immediately
+        // Upgrade success, persist fw_tag and reboot immediately
         ESP_LOGI(TAG, "Firmware upgrade successful, rebooting...");
+        if (!version.empty()) {
+            Settings settings("feishu", true);
+            settings.SetString("fw_tag", version);
+        }
         display->SetChatMessage("system", "Upgrade successful, rebooting...");
         vTaskDelay(pdMS_TO_TICKS(1000));  // Brief pause to show message
         Reboot();

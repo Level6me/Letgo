@@ -421,7 +421,6 @@ bool FeishuProtocol::IsAudioChannelOpened() const {
 
 void FeishuProtocol::SendStartListening(ListeningMode mode) {
     (void)mode;
-    SendBargeIn();
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "type", "voice_start");
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
@@ -719,10 +718,6 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
             std::string url = url_item->valuestring;
             std::string ver = cJSON_IsString(ver_item) ? ver_item->valuestring : "";
             ESP_LOGI(TAG, "Received OTA upgrade request: url=%s, ver=%s", url.c_str(), ver.c_str());
-            if (!ver.empty()) {
-                Settings settings("feishu", true);
-                settings.SetString("fw_tag", ver);
-            }
             Application::GetInstance().Schedule([url, ver]() {
                 Application::GetInstance().UpgradeFirmware(url, ver);
             });
