@@ -1373,9 +1373,8 @@ private:
 
         // 仅当录音极短（小于 250ms 即 0.25 秒误按）才视为误触取消
         if (elapsed_us < 250000) {
-            if (app.GetDeviceState() == kDeviceStateListening) {
-                app.StopListening();
-            }
+            app.StopFeishuVoice();
+            app.SetFeishuAwaitingReply(false);
             if (display_) {
                 display_->ShowNotification("Audio too short", 1500);
                 display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
@@ -1383,10 +1382,8 @@ private:
             return;
         }
 
-        app.SetFeishuAwaitingReply(true);
-        if (app.GetDeviceState() == kDeviceStateListening) {
-            app.StopListening();
-        }
+        // 直接向飞书服务端送达录音结束帧 (voice_end) 并切换到待命/等待状态
+        app.StopFeishuVoice();
 
         int duration_sec = (int)((elapsed_us + 500000) / 1000000);
         if (duration_sec < 1) duration_sec = 1;

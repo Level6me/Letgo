@@ -269,17 +269,16 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
-            // Feishu response watchdog: if awaiting reply exceeds 15 seconds, reset to standby
+            // Feishu response watchdog: if awaiting reply exceeds 10 seconds, reset to standby
             if (feishu_awaiting_reply_) {
                 feishu_awaiting_ticks_++;
-                if (feishu_awaiting_ticks_ >= 15) {
-                    ESP_LOGW(TAG, "Feishu awaiting reply timed out (15s), resetting to standby");
+                if (feishu_awaiting_ticks_ >= 10) {
+                    ESP_LOGW(TAG, "Feishu awaiting reply timed out (10s), resetting to standby");
                     SetFeishuAwaitingReply(false);
-                    if (GetDeviceState() == kDeviceStateIdle || GetDeviceState() == kDeviceStateUnknown) {
-                        display->SetStatus(IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
-                        display->SetEmotion("neutral");
-                        display->ShowNotification("Response timeout\nBack to Standby", 2500);
-                    }
+                    SetDeviceState(kDeviceStateIdle);
+                    display->SetStatus(IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
+                    display->SetEmotion("neutral");
+                    display->ShowNotification("Response timeout\nBack to Standby", 2500);
                 }
             }
 
@@ -1280,8 +1279,11 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     bool upgrade_success = Ota::Upgrade(upgrade_url, [this, display](int progress, size_t speed) {
         char buffer[32];
         snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
-        Schedule([display, message = std::string(buffer)]() {
+        char st_buf[32];
+        snprintf(st_buf, sizeof(st_buf), "OTA %d%%", progress);
+        Schedule([display, message = std::string(buffer), st = std::string(st_buf)]() {
             display->SetChatMessage("system", message.c_str());
+            display->SetStatus(st.c_str());
         });
     });
 
@@ -1526,5 +1528,13 @@ void Application::SetFeishuAwaitingReply(bool awaiting) {
 
 bool Application::IsFeishuAwaitingReply() const {
     return feishu_awaiting_reply_;
+}
+
+void Application::StopFeishuVoice() {
+    if (protocol_) {
+        protocol_->SendStopListening();
+    }
+    SetFeishuAwaitingReply(true);
+    SetDeviceState(kDeviceStateIdle);
 }
 

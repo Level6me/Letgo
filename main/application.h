@@ -135,6 +135,7 @@ public:
     void SetOnFeishuProjectsReceived(std::function<void(const std::vector<std::string>&, const std::string&)> cb);
     void SetFeishuAwaitingReply(bool awaiting);
     bool IsFeishuAwaitingReply() const;
+    void StopFeishuVoice();
     
     /**
      * Reset protocol resources (thread-safe)
