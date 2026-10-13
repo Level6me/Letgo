@@ -12,6 +12,7 @@
 
 #include <driver/gpio.h>
 #include <esp_log.h>
+#include <esp_ota_ops.h>
 #include <arpa/inet.h>
 #include <cJSON.h>
 #include <cstring>
@@ -167,6 +168,21 @@ void Application::Initialize() {
     // Start network asynchronously
     board.StartNetwork();
 
+    // Mark running firmware partition as valid immediately to prevent OTA rollback
+    const esp_partition_t* running_partition = esp_ota_get_running_partition();
+    if (running_partition != nullptr && strcmp(running_partition->label, "factory") != 0) {
+        esp_ota_img_states_t ota_state;
+        if (esp_ota_get_state_partition(running_partition, &ota_state) == ESP_OK) {
+            if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+                ESP_LOGI(TAG, "Running partition %s is pending verify. Marking valid & canceling rollback!", running_partition->label);
+                esp_ota_mark_app_valid_cancel_rollback();
+            }
+        }
+    }
+    if (ota_) {
+        ota_->MarkCurrentVersionValid();
+    }
+
     // Update the status bar immediately to show the network state
     display->UpdateStatusBar(true);
 }
@@ -269,11 +285,11 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
-            // Feishu response watchdog: if awaiting reply exceeds 10 seconds, reset to standby
+            // Feishu response watchdog: if awaiting reply exceeds 30 seconds, reset to standby
             if (feishu_awaiting_reply_) {
                 feishu_awaiting_ticks_++;
-                if (feishu_awaiting_ticks_ >= 10) {
-                    ESP_LOGW(TAG, "Feishu awaiting reply timed out (10s), resetting to standby");
+                if (feishu_awaiting_ticks_ >= 30) {
+                    ESP_LOGW(TAG, "Feishu awaiting reply timed out (30s), resetting to standby");
                     SetFeishuAwaitingReply(false);
                     SetDeviceState(kDeviceStateIdle);
                     display->SetStatus(IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
@@ -1276,14 +1292,15 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     audio_service_.Stop();
     vTaskDelay(pdMS_TO_TICKS(1000));
 
+    if (display) {
+        display->ShowProgress(0, 0);
+    }
+
     bool upgrade_success = Ota::Upgrade(upgrade_url, [this, display](int progress, size_t speed) {
-        char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
-        char st_buf[32];
-        snprintf(st_buf, sizeof(st_buf), "OTA %d%%", progress);
-        Schedule([display, message = std::string(buffer), st = std::string(st_buf)]() {
-            display->SetChatMessage("system", message.c_str());
-            display->SetStatus(st.c_str());
+        Schedule([display, progress, speed]() {
+            if (display) {
+                display->ShowProgress(progress, speed);
+            }
         });
     });
 
@@ -1291,6 +1308,9 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         // Upgrade failed, restart audio service and continue running
         ESP_LOGE(TAG,
                  "Firmware upgrade failed, restarting audio service and continuing operation...");
+        if (display) {
+            display->HideProgress();
+        }
         audio_service_.Start();                              // Restart audio service
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);  // Restore power save level
         Alert(Lang::Strings::ERROR, Lang::Strings::UPGRADE_FAILED, "cancel",
@@ -1304,8 +1324,10 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
             Settings settings("feishu", true);
             settings.SetString("fw_tag", version);
         }
-        display->SetChatMessage("system", "Upgrade successful, rebooting...");
-        vTaskDelay(pdMS_TO_TICKS(1000));  // Brief pause to show message
+        if (display) {
+            display->ShowProgress(100, 0);
+        }
+        vTaskDelay(pdMS_TO_TICKS(1500));  // Brief pause to show completed progress
         Reboot();
         return true;
     }
@@ -1527,6 +1549,10 @@ void Application::SetOnFeishuProjectsReceived(std::function<void(const std::vect
 
 void Application::SetFeishuAwaitingReply(bool awaiting) {
     feishu_awaiting_reply_ = awaiting;
+    feishu_awaiting_ticks_ = 0;
+}
+
+void Application::ResetFeishuAwaitingTicks() {
     feishu_awaiting_ticks_ = 0;
 }
 

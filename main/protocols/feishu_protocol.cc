@@ -9,6 +9,7 @@
 
 #include <esp_log.h>
 #include <esp_app_desc.h>
+#include <esp_ota_ops.h>
 #include <cJSON.h>
 #include <cstring>
 #include <sys/socket.h>
@@ -554,6 +555,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         });
     } else if (type_str == "voice_reply_start") {
         Application::GetInstance().Schedule([display]() {
+            Application::GetInstance().SetFeishuAwaitingReply(false);
             Application::GetInstance().SetDeviceState(kDeviceStateSpeaking);
             if (display) {
                 display->SetStatus(Lang::Strings::FEISHU_PLAYING);
@@ -633,6 +635,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
             }
         });
     } else if (type_str == "handshake_ack") {
+        esp_ota_mark_app_valid_cancel_rollback();
         if (display) {
             Application::GetInstance().Schedule([display]() {
                 display->SetStatus("飞书控制台就绪");
@@ -655,6 +658,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                         display->SetEmotion("listening");
                     }
                 } else if (st == "thinking") {
+                    app.ResetFeishuAwaitingTicks();
                     if (display) {
                         if (detail_str.find("Transcribing") != std::string::npos) {
                             display->SetStatus("飞书识别中...");
@@ -666,6 +670,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                         display->SetEmotion("thinking");
                     }
                 } else if (st == "speaking") {
+                    app.SetFeishuAwaitingReply(false);
                     app.SetDeviceState(kDeviceStateSpeaking);
                     if (display) {
                         display->SetStatus(Lang::Strings::FEISHU_PLAYING);
@@ -687,6 +692,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         if (cJSON_IsString(text) && display) {
             std::string msg = text->valuestring;
             Application::GetInstance().Schedule([display, msg]() {
+                Application::GetInstance().SetFeishuAwaitingReply(false);
                 display->SetChatMessage("assistant", msg.c_str());
                 display->SetEmotion("speaking");
                 display->SetStatus(Lang::Strings::FEISHU_PLAYING);

@@ -118,6 +118,16 @@ private:
     lv_obj_t* device_info_text_label_ = nullptr;
     esp_timer_handle_t device_info_hide_timer_ = nullptr;
 
+    // 屏幕居中 OTA 固件升级专属弹窗 (宽228, 高160, 黑白高对比)
+    lv_obj_t* ota_modal_ = nullptr;
+    lv_obj_t* ota_title_label_ = nullptr;
+    lv_obj_t* ota_sub_label_ = nullptr;
+    lv_obj_t* ota_sep_ = nullptr;
+    lv_obj_t* ota_percent_label_ = nullptr;
+    lv_obj_t* ota_bar_bg_ = nullptr;
+    lv_obj_t* ota_bar_fill_ = nullptr;
+    lv_obj_t* ota_speed_label_ = nullptr;
+
     // 主题反色状态 (false: 纯黑底白字; true: 纯白底黑字)
     bool is_theme_inverted_ = false;
 
@@ -640,6 +650,77 @@ public:
         lv_obj_set_style_text_line_space(device_info_text_label_, 6, 0);
         lv_label_set_long_mode(device_info_text_label_, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(device_info_text_label_, LV_TEXT_ALIGN_LEFT, 0);
+
+        // 12. 屏幕居中 OTA 固件升级专属弹窗 (宽228, 高160, 黑白高对比)
+        ota_modal_ = lv_obj_create(screen);
+        lv_obj_set_size(ota_modal_, 228, 160);
+        lv_obj_align(ota_modal_, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_color(ota_modal_, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(ota_modal_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(ota_modal_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_border_width(ota_modal_, 2, 0);
+        lv_obj_set_style_radius(ota_modal_, 8, 0);
+        lv_obj_set_style_pad_all(ota_modal_, 8, 0);
+        lv_obj_set_flex_flow(ota_modal_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(ota_modal_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(ota_modal_, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_add_flag(ota_modal_, LV_OBJ_FLAG_HIDDEN);
+
+        ota_title_label_ = lv_label_create(ota_modal_);
+        if (text_font) lv_obj_set_style_text_font(ota_title_label_, text_font, 0);
+        lv_obj_set_style_text_color(ota_title_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_width(ota_title_label_, 212);
+        lv_obj_set_style_text_align(ota_title_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(ota_title_label_, "[ OTA Upgrade / 固件升级 ]");
+
+        ota_sub_label_ = lv_label_create(ota_modal_);
+        if (text_font) lv_obj_set_style_text_font(ota_sub_label_, text_font, 0);
+        lv_obj_set_style_text_color(ota_sub_label_, lv_color_hex(0xAAAAAA), 0);
+        lv_obj_set_width(ota_sub_label_, 212);
+        lv_obj_set_style_text_align(ota_sub_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(ota_sub_label_, "Do not power off / 请勿断电");
+
+        ota_sep_ = lv_obj_create(ota_modal_);
+        lv_obj_set_size(ota_sep_, 212, 1);
+        lv_obj_set_style_bg_color(ota_sep_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(ota_sep_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(ota_sep_, 0, 0);
+        lv_obj_set_style_margin_top(ota_sep_, 2, 0);
+        lv_obj_set_style_margin_bottom(ota_sep_, 6, 0);
+
+        ota_percent_label_ = lv_label_create(ota_modal_);
+        if (text_font) lv_obj_set_style_text_font(ota_percent_label_, text_font, 0);
+        lv_obj_set_style_text_color(ota_percent_label_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_width(ota_percent_label_, 212);
+        lv_obj_set_style_text_align(ota_percent_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(ota_percent_label_, "0%");
+
+        ota_bar_bg_ = lv_obj_create(ota_modal_);
+        lv_obj_set_size(ota_bar_bg_, 180, 8);
+        lv_obj_set_style_bg_opa(ota_bar_bg_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_color(ota_bar_bg_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_border_width(ota_bar_bg_, 1, 0);
+        lv_obj_set_style_radius(ota_bar_bg_, 4, 0);
+        lv_obj_set_style_pad_all(ota_bar_bg_, 0, 0);
+        lv_obj_set_style_margin_top(ota_bar_bg_, 4, 0);
+        lv_obj_set_style_margin_bottom(ota_bar_bg_, 4, 0);
+        lv_obj_set_scrollbar_mode(ota_bar_bg_, LV_SCROLLBAR_MODE_OFF);
+
+        ota_bar_fill_ = lv_obj_create(ota_bar_bg_);
+        lv_obj_set_size(ota_bar_fill_, 0, 6);
+        lv_obj_set_style_bg_color(ota_bar_fill_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(ota_bar_fill_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(ota_bar_fill_, 0, 0);
+        lv_obj_set_style_radius(ota_bar_fill_, 3, 0);
+        lv_obj_set_style_pad_all(ota_bar_fill_, 0, 0);
+        lv_obj_align(ota_bar_fill_, LV_ALIGN_LEFT_MID, 0, 0);
+
+        ota_speed_label_ = lv_label_create(ota_modal_);
+        if (text_font) lv_obj_set_style_text_font(ota_speed_label_, text_font, 0);
+        lv_obj_set_style_text_color(ota_speed_label_, lv_color_hex(0xAAAAAA), 0);
+        lv_obj_set_width(ota_speed_label_, 212);
+        lv_obj_set_style_text_align(ota_speed_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(ota_speed_label_, "正在连接下载...");
 
         // 12. 真实 FFT 频谱 20Hz 刷新定时器 (运行在 LVGL 线程中，完全无锁安全)
         if (!wave_timer_) {
@@ -1203,8 +1284,13 @@ public:
         return !lv_obj_has_flag(device_info_modal_, LV_OBJ_FLAG_HIDDEN);
     }
 
+    bool IsOtaProgressVisible() const {
+        if (!ota_modal_) return false;
+        return !lv_obj_has_flag(ota_modal_, LV_OBJ_FLAG_HIDDEN);
+    }
+
     bool IsAnyMenuVisible() const {
-        return IsGatewayListVisible() || IsProjectListVisible() || IsSettingsListVisible() || IsDeviceInfoVisible();
+        return IsGatewayListVisible() || IsProjectListVisible() || IsSettingsListVisible() || IsDeviceInfoVisible() || IsOtaProgressVisible();
     }
 
     void HideAllMenus() {
@@ -1212,6 +1298,9 @@ public:
         HideProjectList();
         HideSettingsList();
         HideDeviceInfo();
+        if (ota_modal_) {
+            lv_obj_add_flag(ota_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
     // 纯黑白双色主题自适应渲染
@@ -1297,6 +1386,19 @@ public:
             if (device_info_sep_) lv_obj_set_style_bg_color(device_info_sep_, fg_col, 0);
             if (device_info_text_label_) lv_obj_set_style_text_color(device_info_text_label_, fg_col, 0);
         }
+
+        // OTA 固件升级专属弹窗
+        if (ota_modal_) {
+            lv_obj_set_style_bg_color(ota_modal_, bg_col, 0);
+            lv_obj_set_style_border_color(ota_modal_, fg_col, 0);
+            if (ota_title_label_) lv_obj_set_style_text_color(ota_title_label_, fg_col, 0);
+            if (ota_sub_label_) lv_obj_set_style_text_color(ota_sub_label_, sub_col, 0);
+            if (ota_sep_) lv_obj_set_style_bg_color(ota_sep_, fg_col, 0);
+            if (ota_percent_label_) lv_obj_set_style_text_color(ota_percent_label_, fg_col, 0);
+            if (ota_bar_bg_) lv_obj_set_style_border_color(ota_bar_bg_, fg_col, 0);
+            if (ota_bar_fill_) lv_obj_set_style_bg_color(ota_bar_fill_, fg_col, 0);
+            if (ota_speed_label_) lv_obj_set_style_text_color(ota_speed_label_, sub_col, 0);
+        }
     }
 
     // 切换黑白主题
@@ -1314,6 +1416,60 @@ public:
         int inv = settings.GetInt("invert_color", 0);
         is_theme_inverted_ = (inv == 1);
         ApplyThemeStyles();
+    }
+
+    virtual void ShowProgress(int progress, size_t speed = 0) override {
+        DisplayLockGuard lock(this);
+        HideAllMenus();
+        if (bottom_volume_box_) {
+            lv_obj_add_flag(bottom_volume_box_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (center_line_obj_) {
+            lv_obj_add_flag(center_line_obj_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (wave_container_) {
+            lv_obj_add_flag(wave_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (ota_modal_) {
+            lv_obj_remove_flag(ota_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        if (ota_percent_label_) {
+            char p_buf[32];
+            snprintf(p_buf, sizeof(p_buf), "%d%%", progress);
+            lv_label_set_text(ota_percent_label_, p_buf);
+        }
+
+        if (ota_bar_fill_) {
+            int fill_w = (178 * progress) / 100;
+            if (fill_w < 2 && progress > 0) fill_w = 2;
+            if (fill_w > 178) fill_w = 178;
+            lv_obj_set_width(ota_bar_fill_, fill_w);
+        }
+
+        if (ota_speed_label_) {
+            char s_buf[64];
+            if (progress >= 100) {
+                snprintf(s_buf, sizeof(s_buf), "写入完成，正在校验重启...");
+            } else if (speed > 0) {
+                snprintf(s_buf, sizeof(s_buf), "写入速度: %u KB/s", (unsigned int)(speed / 1024));
+            } else {
+                snprintf(s_buf, sizeof(s_buf), "正在下载写入...");
+            }
+            lv_label_set_text(ota_speed_label_, s_buf);
+        }
+
+        char st_buf[32];
+        snprintf(st_buf, sizeof(st_buf), "OTA %d%%", progress);
+        SetStatus(st_buf);
+    }
+
+    virtual void HideProgress() override {
+        DisplayLockGuard lock(this);
+        if (ota_modal_) {
+            lv_obj_add_flag(ota_modal_, LV_OBJ_FLAG_HIDDEN);
+        }
+        ShowIdleStraightLine();
     }
 
     virtual void SetEmotion(const char* emotion) override {

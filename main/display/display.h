@@ -43,6 +43,8 @@ public:
     virtual void SetStatus(const char* status);
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string& notification, int duration_ms = 3000);
+    virtual void ShowProgress(int progress, size_t speed = 0);
+    virtual void HideProgress();
     virtual void SetEmotion(const char* emotion);
     virtual void SetChatMessage(const char* role, const char* content);
     // Show device activation instructions. LCD displays may override this

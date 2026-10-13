@@ -134,6 +134,7 @@ public:
     void SwitchFeishuProject(const std::string& project_name);
     void SetOnFeishuProjectsReceived(std::function<void(const std::vector<std::string>&, const std::string&)> cb);
     void SetFeishuAwaitingReply(bool awaiting);
+    void ResetFeishuAwaitingTicks();
     bool IsFeishuAwaitingReply() const;
     void StopFeishuVoice();
     

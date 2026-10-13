@@ -29,6 +29,24 @@ void Display::ShowNotification(const char* notification, int duration_ms) {
     ESP_LOGW(TAG, "ShowNotification: %s", notification);
 }
 
+void Display::ShowProgress(int progress, size_t speed) {
+    char buffer[32];
+    if (speed > 0) {
+        snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, (unsigned int)(speed / 1024));
+    } else {
+        snprintf(buffer, sizeof(buffer), "%d%%", progress);
+    }
+    char st_buf[32];
+    snprintf(st_buf, sizeof(st_buf), "OTA %d%%", progress);
+    SetStatus(st_buf);
+    SetChatMessage("system", buffer);
+}
+
+void Display::HideProgress() {
+    SetStatus("");
+    SetChatMessage("system", "");
+}
+
 void Display::UpdateStatusBar(bool update_all) {}
 
 void Display::SetEmotion(const char* emotion) { ESP_LOGW(TAG, "SetEmotion: %s", emotion); }
