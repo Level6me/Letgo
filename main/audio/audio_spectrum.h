@@ -14,12 +14,14 @@ class AudioSpectrum {
 public:
     static constexpr size_t kFftSize = 128;
     static constexpr size_t kNumBands = 21;
+    static constexpr size_t kMinHeight = 2;
+    static constexpr size_t kMaxHeight = 96;
 
-    // 分析 16kHz PCM 音频数据，输出 21 频段幅值 (2 ~ 34 像素高度)
+    // 分析 16kHz PCM 音频数据，输出 21 频段幅值 (2 ~ 96 像素高度)
     static void Analyze(const int16_t* pcm, size_t samples, uint8_t bands_out[kNumBands], uint8_t decay_bands[kNumBands]) {
         if (pcm == nullptr || samples < kFftSize) {
             for (size_t i = 0; i < kNumBands; i++) {
-                if (decay_bands[i] > 3) decay_bands[i] -= 2;
+                if (decay_bands[i] > 5) decay_bands[i] -= 4;
                 else decay_bands[i] = 2;
                 bands_out[i] = decay_bands[i];
             }
@@ -126,7 +128,7 @@ public:
             }
             total_energy += max_val;
 
-            // 宽动态范围高灵敏度对数压缩: 将 max_val * gain 映射至 0 ~ 32px 动态高度
+            // 宽动态范围高灵敏度对数压缩: 将 max_val * gain 映射至 0 ~ 94px 动态高度
             // 采用自适应 log10 曲线，在弱信号(0.01~0.05)下具备优异斜率响应，中强信号自然渐进饱和
             float scaled = max_val * kBinDefs[b].gain * 3.6f;
             float norm = 0.0f;
@@ -134,7 +136,7 @@ public:
                 norm = log10f(1.0f + scaled * 8.0f) / 0.95f;
                 if (norm > 1.0f) norm = 1.0f;
             }
-            raw_heights[b] = norm * 32.0f;
+            raw_heights[b] = norm * 94.0f;
         }
 
         // 软静音门限 (Noise Gate): 仅滤除纯底噪，超低阈值保证人声呼吸/轻语也能灵敏起伏
@@ -150,16 +152,16 @@ public:
             if (!is_silent) {
                 uint8_t bin_idx = kMirrorMap[i];
                 target_h = 2 + (int)roundf(raw_heights[bin_idx]);
-                if (target_h > 34) target_h = 34;
-                if (target_h < 2) target_h = 2;
+                if (target_h > (int)kMaxHeight) target_h = (int)kMaxHeight;
+                if (target_h < (int)kMinHeight) target_h = (int)kMinHeight;
             }
 
-            // 平滑下落衰减 (Peak Decay): 每帧下落 2px，保证 20Hz 刷新时如水波般流动丝滑
+            // 平滑下落衰减 (Peak Decay): 每帧下落 4px，保证 20Hz 刷新时灵敏跳跃且水波般流动丝滑
             if (target_h >= decay_bands[i]) {
                 decay_bands[i] = (uint8_t)target_h;
             } else {
-                if (decay_bands[i] > 3) {
-                    decay_bands[i] -= 2;
+                if (decay_bands[i] > 5) {
+                    decay_bands[i] -= 4;
                 } else {
                     decay_bands[i] = 2;
                 }

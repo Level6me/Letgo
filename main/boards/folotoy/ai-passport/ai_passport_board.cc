@@ -151,7 +151,7 @@ private:
         for (int i = 0; i < kWaveBarsCount; i++) {
             int h = bands[i];
             if (h < 2) h = 2;
-            if (h > 34) h = 34;
+            if (h > 96) h = 96;
 
             if (wave_bars_[i]) {
                 lv_obj_set_height(wave_bars_[i], h);
@@ -246,9 +246,9 @@ public:
         lv_obj_set_scrollbar_mode(center_line_obj_, LV_SCROLLBAR_MODE_OFF);
         lv_obj_align(center_line_obj_, LV_ALIGN_CENTER, 0, 0);
 
-        // 4. 屏幕正中间动态波浪条容器 (录音与播放时动态显示真实 FFT 频谱)
+        // 4. 屏幕正中间动态波浪条容器 (录音与播放时动态显示真实 FFT 频谱与流动波浪)
         wave_container_ = lv_obj_create(screen);
-        lv_obj_set_size(wave_container_, 190, 40);
+        lv_obj_set_size(wave_container_, 190, 110);
         lv_obj_set_style_bg_opa(wave_container_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(wave_container_, 0, 0);
         lv_obj_set_style_pad_all(wave_container_, 0, 0);
@@ -264,7 +264,7 @@ public:
             lv_obj_set_style_bg_color(wave_bars_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_style_bg_opa(wave_bars_[i], LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(wave_bars_[i], 0, 0);
-            lv_obj_set_style_radius(wave_bars_[i], 2, 0);
+            lv_obj_set_style_radius(wave_bars_[i], 3, 0);
             lv_obj_set_style_pad_all(wave_bars_[i], 0, 0);
             if (i > 0) {
                 lv_obj_set_style_margin_left(wave_bars_[i], 3, 0);
@@ -776,8 +776,21 @@ public:
             was_active_wave_ = true;
         } else {
             if (was_active_wave_) {
-                was_active_wave_ = false;
-                RenderIdleLine();
+                uint8_t bands[kWaveBarsCount];
+                audio_service.GetSpectrumBands(bands);
+                bool still_active = false;
+                for (int i = 0; i < kWaveBarsCount; i++) {
+                    if (bands[i] > 2) {
+                        still_active = true;
+                        break;
+                    }
+                }
+                if (still_active) {
+                    RenderFftSpectrum(bands);
+                } else {
+                    was_active_wave_ = false;
+                    RenderIdleLine();
+                }
             }
         }
     }

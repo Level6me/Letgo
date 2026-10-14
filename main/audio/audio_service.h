@@ -215,6 +215,8 @@ private:
     std::atomic<uint16_t> output_energy_rms_{0};
     mutable std::atomic<uint8_t> spectrum_bands_[AudioSpectrum::kNumBands]{};
     uint8_t decay_bands_[AudioSpectrum::kNumBands]{};
+    mutable uint8_t playback_decay_bands_[AudioSpectrum::kNumBands]{};
+    mutable uint16_t playback_phase_ = 0;
 
     esp_timer_handle_t audio_power_timer_ = nullptr;
     std::chrono::steady_clock::time_point last_input_time_;

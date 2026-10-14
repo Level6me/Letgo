@@ -27,7 +27,14 @@
 
 #define TAG "AudioService"
 
-AudioService::AudioService() { event_group_ = xEventGroupCreate(); }
+AudioService::AudioService() {
+    event_group_ = xEventGroupCreate();
+    for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
+        spectrum_bands_[i].store(2, std::memory_order_relaxed);
+        decay_bands_[i] = 2;
+        playback_decay_bands_[i] = 2;
+    }
+}
 
 AudioService::~AudioService() {
     if (event_group_ != nullptr) {
@@ -868,26 +875,68 @@ bool AudioService::IsPlaybackIdle() {
 
 void AudioService::GetSpectrumBands(uint8_t bands[AudioSpectrum::kNumBands]) const {
     uint16_t out_rms = output_energy_rms_.load(std::memory_order_relaxed);
-    if (out_rms > 120) {
-        // 播放语音时：由即时声音能量生成生动的频谱律动（将耗时计算完全从音频输出线程剥离，零卡顿）
-        float norm = log10f(1.0f + (float)out_rms * 0.0035f) / 0.85f;
+    if (out_rms > 80) {
+        // 播放语音时：由即时声音能量结合双重行波干涉，生成富有生命力的流动波浪律动
+        playback_phase_++;
+        float norm = log10f(1.0f + (float)out_rms * 0.0030f) / 0.85f;
         if (norm > 1.0f) norm = 1.0f;
-        int peak_h = 2 + (int)(norm * 30.0f);
-        if (peak_h > 34) peak_h = 34;
-        if (peak_h < 2) peak_h = 2;
 
-        static const uint8_t kRatio[AudioSpectrum::kNumBands] = {
-            30, 42, 55, 68, 78, 88, 94, 98, 100, 98, 94, 88, 78, 68, 55, 42, 30, 22, 16, 12, 8
-        };
+        // 律动上限扩展至 96px（原先仅 34px），动态浮动范围跃升至 2 ~ 96px
+        float peak_h = 2.0f + norm * 94.0f;
+
+        // 行波相位参数 (20Hz 刷新下如流水般平滑起伏)
+        float t = (float)playback_phase_ * 0.22f;
+
         for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
-            int h = (peak_h * kRatio[i]) / 100;
-            if (h < 2) h = 2;
-            bands[i] = (uint8_t)h;
+            // 基础对称包络 (中间高两边自然渐收)
+            float dist = fabsf((float)i - 10.0f);
+            float env = 1.0f - 0.55f * (dist / 10.0f) * (dist / 10.0f);
+            if (env < 0.25f) env = 0.25f;
+
+            // 双重行波干涉算法：产生左右穿梭交错的涟漪与浮动感
+            float wave1 = 0.75f + 0.25f * sinf(t + (float)i * 0.52f);
+            float wave2 = 0.15f * sinf(t * 1.7f - (float)i * 0.82f);
+            float mod = (wave1 + wave2) * env;
+
+            int target_h = (int)roundf(peak_h * mod);
+            if (target_h < 2) target_h = 2;
+            if (target_h > 96) target_h = 96;
+
+            // 平滑下落衰减：每帧下落 4px，充满弹性与响应律动
+            if (target_h >= playback_decay_bands_[i]) {
+                playback_decay_bands_[i] = (uint8_t)target_h;
+            } else {
+                if (playback_decay_bands_[i] > 5) {
+                    playback_decay_bands_[i] -= 4;
+                } else {
+                    playback_decay_bands_[i] = 2;
+                }
+            }
+            bands[i] = playback_decay_bands_[i];
         }
     } else {
-        // 麦克风录音时：使用真实 FFT 频段分析
+        // 音频刚停或处于断句停顿：保持波浪平滑衰减，避免瞬时跳变归零
+        bool has_decay = false;
         for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
-            bands[i] = spectrum_bands_[i].load(std::memory_order_relaxed);
+            if (playback_decay_bands_[i] > 2) {
+                if (playback_decay_bands_[i] > 5) {
+                    playback_decay_bands_[i] -= 4;
+                } else {
+                    playback_decay_bands_[i] = 2;
+                }
+                has_decay = true;
+            }
+        }
+
+        if (has_decay) {
+            for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
+                bands[i] = playback_decay_bands_[i];
+            }
+        } else {
+            // 麦克风录音时：展示灵敏跳跃的真实 FFT 频段分析
+            for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
+                bands[i] = spectrum_bands_[i].load(std::memory_order_relaxed);
+            }
         }
     }
 }
@@ -897,6 +946,7 @@ void AudioService::ResetDecoder() {
     for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
         spectrum_bands_[i].store(2, std::memory_order_relaxed);
         decay_bands_[i] = 2;
+        playback_decay_bands_[i] = 2;
     }
     bool notify_drained = false;
     {
@@ -932,6 +982,7 @@ bool AudioService::MarkPlaybackDrainedLocked() {
     for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
         spectrum_bands_[i].store(2, std::memory_order_relaxed);
         decay_bands_[i] = 2;
+        playback_decay_bands_[i] = 2;
     }
     playback_drained_notified_ = true;
     return true;
