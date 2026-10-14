@@ -15,13 +15,13 @@ public:
     static constexpr size_t kFftSize = 128;
     static constexpr size_t kNumBands = 21;
     static constexpr size_t kMinHeight = 2;
-    static constexpr size_t kMaxHeight = 96;
+    static constexpr size_t kMaxHeight = 80;
 
-    // 分析 16kHz PCM 音频数据，输出 21 频段幅值 (2 ~ 96 像素高度)
+    // 分析 16kHz PCM 音频数据，输出 21 频段幅值 (2 ~ 80 像素高度)
     static void Analyze(const int16_t* pcm, size_t samples, uint8_t bands_out[kNumBands], uint8_t decay_bands[kNumBands]) {
         if (pcm == nullptr || samples < kFftSize) {
             for (size_t i = 0; i < kNumBands; i++) {
-                if (decay_bands[i] > 5) decay_bands[i] -= 4;
+                if (decay_bands[i] > 4) decay_bands[i] -= 3;
                 else decay_bands[i] = 2;
                 bands_out[i] = decay_bands[i];
             }
@@ -128,19 +128,18 @@ public:
             }
             total_energy += max_val;
 
-            // 宽动态范围高灵敏度对数压缩: 将 max_val * gain 映射至 0 ~ 94px 动态高度
-            // 采用自适应 log10 曲线，在弱信号(0.01~0.05)下具备优异斜率响应，中强信号自然渐进饱和
-            float scaled = max_val * kBinDefs[b].gain * 3.6f;
+            // 平稳对数压缩: 滤除微弱杂音，适度增益使得人声起伏自然，避免过度灵敏与频繁爆顶
+            float scaled = max_val * kBinDefs[b].gain * 2.2f;
             float norm = 0.0f;
-            if (scaled > 0.002f) {
-                norm = log10f(1.0f + scaled * 8.0f) / 0.95f;
+            if (scaled > 0.010f) {
+                norm = log10f(1.0f + (scaled - 0.010f) * 3.2f) / 0.95f;
                 if (norm > 1.0f) norm = 1.0f;
             }
-            raw_heights[b] = norm * 94.0f;
+            raw_heights[b] = norm * 78.0f;
         }
 
-        // 软静音门限 (Noise Gate): 仅滤除纯底噪，超低阈值保证人声呼吸/轻语也能灵敏起伏
-        bool is_silent = (total_energy < 0.0015f);
+        // 软静音门限 (Noise Gate): 提高至 0.008f，彻底过滤房间底噪与环境杂音
+        bool is_silent = (total_energy < 0.008f);
 
         // 双向对称镜像排布映射表 (21 根柱子: 外侧高频/空气感 -> 中间为人声与低频核心)
         static const uint8_t kMirrorMap[kNumBands] = {
@@ -156,12 +155,12 @@ public:
                 if (target_h < (int)kMinHeight) target_h = (int)kMinHeight;
             }
 
-            // 平滑下落衰减 (Peak Decay): 每帧下落 4px，保证 20Hz 刷新时灵敏跳跃且水波般流动丝滑
+            // 平滑下落衰减 (Peak Decay): 每帧下落 3px，平稳沉静，避免剧烈高频抖动
             if (target_h >= decay_bands[i]) {
                 decay_bands[i] = (uint8_t)target_h;
             } else {
-                if (decay_bands[i] > 5) {
-                    decay_bands[i] -= 4;
+                if (decay_bands[i] > 4) {
+                    decay_bands[i] -= 3;
                 } else {
                     decay_bands[i] = 2;
                 }

@@ -151,7 +151,7 @@ private:
         for (int i = 0; i < kWaveBarsCount; i++) {
             int h = bands[i];
             if (h < 2) h = 2;
-            if (h > 96) h = 96;
+            if (h > 80) h = 80;
 
             if (wave_bars_[i]) {
                 lv_obj_set_height(wave_bars_[i], h);
@@ -248,7 +248,7 @@ public:
 
         // 4. 屏幕正中间动态波浪条容器 (录音与播放时动态显示真实 FFT 频谱与流动波浪)
         wave_container_ = lv_obj_create(screen);
-        lv_obj_set_size(wave_container_, 190, 110);
+        lv_obj_set_size(wave_container_, 190, 96);
         lv_obj_set_style_bg_opa(wave_container_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(wave_container_, 0, 0);
         lv_obj_set_style_pad_all(wave_container_, 0, 0);

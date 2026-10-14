@@ -875,39 +875,39 @@ bool AudioService::IsPlaybackIdle() {
 
 void AudioService::GetSpectrumBands(uint8_t bands[AudioSpectrum::kNumBands]) const {
     uint16_t out_rms = output_energy_rms_.load(std::memory_order_relaxed);
-    if (out_rms > 80) {
-        // 播放语音时：由即时声音能量结合双重行波干涉，生成富有生命力的流动波浪律动
+    if (out_rms > 150) {
+        // 播放语音时：由即时声音能量结合双重行波干涉，生成平稳舒缓的流动波浪律动
         playback_phase_++;
-        float norm = log10f(1.0f + (float)out_rms * 0.0030f) / 0.85f;
+        float norm = log10f(1.0f + (float)(out_rms - 150) * 0.0012f) / 0.95f;
         if (norm > 1.0f) norm = 1.0f;
 
-        // 律动上限扩展至 96px（原先仅 34px），动态浮动范围跃升至 2 ~ 96px
-        float peak_h = 2.0f + norm * 94.0f;
+        // 律动上限调整至 80px，动态浮动范围 2 ~ 80px，灵动自然且稳重大方
+        float peak_h = 2.0f + norm * 78.0f;
 
-        // 行波相位参数 (20Hz 刷新下如流水般平滑起伏)
-        float t = (float)playback_phase_ * 0.22f;
+        // 行波相位速度放缓至 0.12f，避免高频过激抖动
+        float t = (float)playback_phase_ * 0.12f;
 
         for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
             // 基础对称包络 (中间高两边自然渐收)
             float dist = fabsf((float)i - 10.0f);
-            float env = 1.0f - 0.55f * (dist / 10.0f) * (dist / 10.0f);
-            if (env < 0.25f) env = 0.25f;
+            float env = 1.0f - 0.50f * (dist / 10.0f) * (dist / 10.0f);
+            if (env < 0.30f) env = 0.30f;
 
-            // 双重行波干涉算法：产生左右穿梭交错的涟漪与浮动感
-            float wave1 = 0.75f + 0.25f * sinf(t + (float)i * 0.52f);
-            float wave2 = 0.15f * sinf(t * 1.7f - (float)i * 0.82f);
+            // 柔和双重行波干涉算法：舒缓如流水涟漪
+            float wave1 = 0.80f + 0.20f * sinf(t + (float)i * 0.45f);
+            float wave2 = 0.10f * sinf(t * 1.3f - (float)i * 0.65f);
             float mod = (wave1 + wave2) * env;
 
             int target_h = (int)roundf(peak_h * mod);
             if (target_h < 2) target_h = 2;
-            if (target_h > 96) target_h = 96;
+            if (target_h > 80) target_h = 80;
 
-            // 平滑下落衰减：每帧下落 4px，充满弹性与响应律动
+            // 平滑下落衰减：每帧下落 3px，柔和自然
             if (target_h >= playback_decay_bands_[i]) {
                 playback_decay_bands_[i] = (uint8_t)target_h;
             } else {
-                if (playback_decay_bands_[i] > 5) {
-                    playback_decay_bands_[i] -= 4;
+                if (playback_decay_bands_[i] > 4) {
+                    playback_decay_bands_[i] -= 3;
                 } else {
                     playback_decay_bands_[i] = 2;
                 }
@@ -919,8 +919,8 @@ void AudioService::GetSpectrumBands(uint8_t bands[AudioSpectrum::kNumBands]) con
         bool has_decay = false;
         for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
             if (playback_decay_bands_[i] > 2) {
-                if (playback_decay_bands_[i] > 5) {
-                    playback_decay_bands_[i] -= 4;
+                if (playback_decay_bands_[i] > 4) {
+                    playback_decay_bands_[i] -= 3;
                 } else {
                     playback_decay_bands_[i] = 2;
                 }
@@ -933,7 +933,7 @@ void AudioService::GetSpectrumBands(uint8_t bands[AudioSpectrum::kNumBands]) con
                 bands[i] = playback_decay_bands_[i];
             }
         } else {
-            // 麦克风录音时：展示灵敏跳跃的真实 FFT 频段分析
+            // 麦克风录音时：展示平稳真实的 FFT 频段分析
             for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
                 bands[i] = spectrum_bands_[i].load(std::memory_order_relaxed);
             }
