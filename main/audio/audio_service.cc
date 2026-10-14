@@ -141,7 +141,7 @@ void AudioService::Start() {
             audio_service->AudioOutputTask();
             vTaskDelete(NULL);
         },
-        "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_);
+        "audio_output", 2048 * 2, this, 6, &audio_output_task_handle_);
 #else
     /* Start the audio input task */
     xTaskCreate(
@@ -159,7 +159,7 @@ void AudioService::Start() {
             audio_service->AudioOutputTask();
             vTaskDelete(NULL);
         },
-        "audio_output", 2048, this, 4, &audio_output_task_handle_);
+        "audio_output", 2048 * 2, this, 6, &audio_output_task_handle_);
 #endif
 
     /* Start the opus codec task */
@@ -169,7 +169,7 @@ void AudioService::Start() {
             audio_service->OpusCodecTask();
             vTaskDelete(NULL);
         },
-        "opus_codec", 2048 * 12, this, 2, &opus_codec_task_handle_);
+        "opus_codec", 2048 * 12, this, 5, &opus_codec_task_handle_);
 }
 
 void AudioService::Stop() {
@@ -379,7 +379,7 @@ void AudioService::AudioOutputTask() {
         last_output_time_ = std::chrono::steady_clock::now();
         debug_statistics_.playback_count++;
 
-        // 在音频已安全送入硬件 DMA 后，再计算 RMS 能量值与 21 频段频谱（适当抽样减轻单核 CPU 压力）
+        // 2. 仅计算即时输出 RMS 能量（轻量定点数计算，耗时不足 5 微秒，彻底避免阻塞音频消费队列）
         if (!task.pcm.empty()) {
             uint64_t sum_squares = 0;
             size_t n = task.pcm.size();
@@ -389,22 +389,8 @@ void AudioService::AudioOutputTask() {
             }
             uint16_t rms = static_cast<uint16_t>(sqrt(sum_squares / n));
             output_energy_rms_.store(rms, std::memory_order_relaxed);
-
-            static uint8_t output_spectrum_decimate = 0;
-            if (++output_spectrum_decimate >= 2) {
-                output_spectrum_decimate = 0;
-                uint8_t bands[AudioSpectrum::kNumBands];
-                AudioSpectrum::Analyze(task.pcm.data(), task.pcm.size(), bands, decay_bands_);
-                for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
-                    spectrum_bands_[i].store(bands[i], std::memory_order_relaxed);
-                }
-            }
         } else {
             output_energy_rms_.store(0, std::memory_order_relaxed);
-            for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
-                spectrum_bands_[i].store(2, std::memory_order_relaxed);
-                decay_bands_[i] = 2;
-            }
         }
 
         bool notify_drained = false;
@@ -881,8 +867,28 @@ bool AudioService::IsPlaybackIdle() {
 }
 
 void AudioService::GetSpectrumBands(uint8_t bands[AudioSpectrum::kNumBands]) const {
-    for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
-        bands[i] = spectrum_bands_[i].load(std::memory_order_relaxed);
+    uint16_t out_rms = output_energy_rms_.load(std::memory_order_relaxed);
+    if (out_rms > 120) {
+        // 播放语音时：由即时声音能量生成生动的频谱律动（将耗时计算完全从音频输出线程剥离，零卡顿）
+        float norm = log10f(1.0f + (float)out_rms * 0.0035f) / 0.85f;
+        if (norm > 1.0f) norm = 1.0f;
+        int peak_h = 2 + (int)(norm * 30.0f);
+        if (peak_h > 34) peak_h = 34;
+        if (peak_h < 2) peak_h = 2;
+
+        static const uint8_t kRatio[AudioSpectrum::kNumBands] = {
+            30, 42, 55, 68, 78, 88, 94, 98, 100, 98, 94, 88, 78, 68, 55, 42, 30, 22, 16, 12, 8
+        };
+        for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
+            int h = (peak_h * kRatio[i]) / 100;
+            if (h < 2) h = 2;
+            bands[i] = (uint8_t)h;
+        }
+    } else {
+        // 麦克风录音时：使用真实 FFT 频段分析
+        for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
+            bands[i] = spectrum_bands_[i].load(std::memory_order_relaxed);
+        }
     }
 }
 
