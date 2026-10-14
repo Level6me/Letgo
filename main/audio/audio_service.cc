@@ -242,11 +242,11 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         input_energy_rms_.store(rms, std::memory_order_relaxed);
 
         static uint8_t input_spectrum_decimate = 0;
-        if (++input_spectrum_decimate >= 5) {
+        if (++input_spectrum_decimate >= 2) {
             input_spectrum_decimate = 0;
-            uint8_t bands[15];
+            uint8_t bands[AudioSpectrum::kNumBands];
             AudioSpectrum::Analyze(data.data(), data.size(), bands, decay_bands_);
-            for (int i = 0; i < 15; i++) {
+            for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
                 spectrum_bands_[i].store(bands[i], std::memory_order_relaxed);
             }
         }
@@ -383,14 +383,14 @@ void AudioService::AudioOutputTask() {
             uint16_t rms = static_cast<uint16_t>(sqrt(sum_squares / n));
             output_energy_rms_.store(rms, std::memory_order_relaxed);
 
-            uint8_t bands[15];
+            uint8_t bands[AudioSpectrum::kNumBands];
             AudioSpectrum::Analyze(task.pcm.data(), task.pcm.size(), bands, decay_bands_);
-            for (int i = 0; i < 15; i++) {
+            for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
                 spectrum_bands_[i].store(bands[i], std::memory_order_relaxed);
             }
         } else {
             output_energy_rms_.store(0, std::memory_order_relaxed);
-            for (int i = 0; i < 15; i++) {
+            for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
                 spectrum_bands_[i].store(2, std::memory_order_relaxed);
                 decay_bands_[i] = 2;
             }
@@ -875,15 +875,15 @@ bool AudioService::IsPlaybackIdle() {
     return IsPlaybackDrainedLocked();
 }
 
-void AudioService::GetSpectrumBands(uint8_t bands[15]) const {
-    for (int i = 0; i < 15; i++) {
+void AudioService::GetSpectrumBands(uint8_t bands[AudioSpectrum::kNumBands]) const {
+    for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
         bands[i] = spectrum_bands_[i].load(std::memory_order_relaxed);
     }
 }
 
 void AudioService::ResetDecoder() {
     output_energy_rms_.store(0, std::memory_order_relaxed);
-    for (int i = 0; i < 15; i++) {
+    for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
         spectrum_bands_[i].store(2, std::memory_order_relaxed);
         decay_bands_[i] = 2;
     }
@@ -918,7 +918,7 @@ bool AudioService::MarkPlaybackDrainedLocked() {
         return false;
     }
     output_energy_rms_.store(0, std::memory_order_relaxed);
-    for (int i = 0; i < 15; i++) {
+    for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
         spectrum_bands_[i].store(2, std::memory_order_relaxed);
         decay_bands_[i] = 2;
     }

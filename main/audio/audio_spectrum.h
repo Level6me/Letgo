@@ -13,9 +13,9 @@
 class AudioSpectrum {
 public:
     static constexpr size_t kFftSize = 128;
-    static constexpr size_t kNumBands = 15;
+    static constexpr size_t kNumBands = 21;
 
-    // 分析 16kHz PCM 音频数据，输出 15 频段幅值 (2 ~ 32 像素高度)
+    // 分析 16kHz PCM 音频数据，输出 21 频段幅值 (2 ~ 34 像素高度)
     static void Analyze(const int16_t* pcm, size_t samples, uint8_t bands_out[kNumBands], uint8_t decay_bands[kNumBands]) {
         if (pcm == nullptr || samples < kFftSize) {
             for (size_t i = 0; i < kNumBands; i++) {
@@ -85,25 +85,28 @@ public:
             mag[k] = sqrtf(real[k] * real[k] + imag[k] * imag[k]);
         }
 
-        // 8 个特征频段定义 (0~8000Hz 覆盖超低音、重低音、中频人声到高频泛音)
-        static constexpr size_t kNumBins = 8;
+        // 11 个特征频段定义 (0~8000Hz 全频段细分: 覆盖低音、中频核心人声到高频泛音)
+        static constexpr size_t kNumBins = 11;
         static const struct {
             uint8_t start_bin;
             uint8_t end_bin;
             float gain;
         } kBinDefs[kNumBins] = {
-            { 1,  2, 45.0f}, // Bin 0: 125~250 Hz (Bass / 低音基准)
-            { 3,  4, 40.0f}, // Bin 1: 375~500 Hz (Low-Mid / 男低音/底鼓)
-            { 5,  7, 36.0f}, // Bin 2: 625~875 Hz (Mid / 人声主体)
-            { 8, 12, 35.0f}, // Bin 3: 1000~1500 Hz (Upper Mid / 核心人声)
-            {13, 19, 36.0f}, // Bin 4: 1625~2375 Hz (Presence / 人声明亮度)
-            {20, 28, 40.0f}, // Bin 5: 2500~3500 Hz (Clarity / 清晰度)
-            {29, 40, 46.0f}, // Bin 6: 3625~5000 Hz (Treble / 高频泛音)
-            {41, 62, 54.0f}, // Bin 7: 5125~7750 Hz (Air / 通透气声)
+            { 1,  2, 3.2f}, // Bin 0:  125~250 Hz (Sub-bass / 低频底鼓与重低音)
+            { 3,  4, 3.0f}, // Bin 1:  375~500 Hz (Bass / 男声厚度基频)
+            { 5,  6, 2.8f}, // Bin 2:  625~750 Hz (Low-mid / 人声主体频带)
+            { 7,  9, 2.8f}, // Bin 3:  875~1125 Hz (Mid / 元音第一共振峰)
+            {10, 13, 2.9f}, // Bin 4: 1250~1625 Hz (Mid-high / 核心语音频带)
+            {14, 18, 3.1f}, // Bin 5: 1750~2250 Hz (Presence / 人声明亮度与第二共振峰)
+            {19, 25, 3.4f}, // Bin 6: 2375~3125 Hz (Clarity / 清晰度与辅音)
+            {26, 34, 3.8f}, // Bin 7: 3250~4250 Hz (Crisp / 齿音与清脆感)
+            {35, 43, 4.3f}, // Bin 8: 4375~5375 Hz (Treble / 高频泛音)
+            {44, 52, 4.8f}, // Bin 9: 5500~6500 Hz (Air / 细腻空气感)
+            {53, 62, 5.5f}, // Bin 10: 6625~7750 Hz (Brilliance / 超高频泛音)
         };
 
-        // 计算 8 个主频段能量并施加真实对数动态范围压缩 (Dynamic Range Compression)
-        // 彻底解决微弱声音即全部打满顶峰的问题，让小声细腻波动、大声饱满有力
+        // 计算 11 个频段最大能量并采用高灵敏度宽动态范围对数压缩 (Dynamic Range Audio Mapping)
+        // 彻底解决原先灵敏度过低、说话无波动反应的问题；微弱声音细腻起伏，大声饱满有力且不爆顶
         float raw_heights[kNumBins];
         float total_energy = 0.0f;
         for (size_t b = 0; b < kNumBins; b++) {
@@ -114,37 +117,41 @@ public:
                 }
             }
             total_energy += max_val;
-            // 对数压缩: norm = log10(1 + max_val * 0.35 * gain_factor)
-            // 使得动态范围扩展至 35dB: 轻声微动(3~6px)、正常讲话(8~16px)、大声饱满(18~26px)，绝不爆顶
-            float gain_factor = kBinDefs[b].gain / 40.0f;
-            float norm = log10f(1.0f + max_val * 0.32f * gain_factor);
-            if (norm > 1.0f) norm = 1.0f;
-            raw_heights[b] = norm * 26.0f;
+
+            // 宽动态范围高灵敏度对数压缩: 将 max_val * gain 映射至 0 ~ 32px 动态高度
+            // 采用自适应 log10 曲线，在弱信号(0.01~0.05)下具备优异斜率响应，中强信号自然渐进饱和
+            float scaled = max_val * kBinDefs[b].gain * 3.6f;
+            float norm = 0.0f;
+            if (scaled > 0.002f) {
+                norm = log10f(1.0f + scaled * 8.0f) / 0.95f;
+                if (norm > 1.0f) norm = 1.0f;
+            }
+            raw_heights[b] = norm * 32.0f;
         }
 
-        // 软静音门限 (Noise Gate): 抑制待机麦克风微弱杂音
-        bool is_silent = (total_energy < 0.04f);
+        // 软静音门限 (Noise Gate): 仅滤除纯底噪，超低阈值保证人声呼吸/轻语也能灵敏起伏
+        bool is_silent = (total_energy < 0.0015f);
 
-        // 双向对称镜像排布映射表 (15 根柱子: 外侧高频/低频均衡 -> 正中心为人声核心)
+        // 双向对称镜像排布映射表 (21 根柱子: 外侧高频/空气感 -> 中间为人声与低频核心)
         static const uint8_t kMirrorMap[kNumBands] = {
-            7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7
+            10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
         };
 
         for (size_t i = 0; i < kNumBands; i++) {
             int target_h = 2;
             if (!is_silent) {
                 uint8_t bin_idx = kMirrorMap[i];
-                target_h = 2 + (int)raw_heights[bin_idx];
-                if (target_h > 28) target_h = 28;
+                target_h = 2 + (int)roundf(raw_heights[bin_idx]);
+                if (target_h > 34) target_h = 34;
                 if (target_h < 2) target_h = 2;
             }
 
-            // 平滑下落衰减 (Peak Decay)
+            // 平滑下落衰减 (Peak Decay): 每帧下落 2px，保证 20Hz 刷新时如水波般流动丝滑
             if (target_h >= decay_bands[i]) {
                 decay_bands[i] = (uint8_t)target_h;
             } else {
                 if (decay_bands[i] > 3) {
-                    decay_bands[i] -= 2; // 每帧平滑下落 2px
+                    decay_bands[i] -= 2;
                 } else {
                     decay_bands[i] = 2;
                 }

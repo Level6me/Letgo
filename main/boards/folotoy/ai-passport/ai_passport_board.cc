@@ -52,7 +52,7 @@ class AiPassportDisplay : public SpiLcdDisplay {
 private:
     lv_obj_t* center_line_obj_ = nullptr;
     lv_obj_t* wave_container_ = nullptr;
-    static constexpr int kWaveBarsCount = 15;
+    static constexpr int kWaveBarsCount = 21;
     lv_obj_t* wave_bars_[kWaveBarsCount] = {nullptr};
 
     // 屏幕底部音量胶囊 HUD
@@ -151,7 +151,7 @@ private:
         for (int i = 0; i < kWaveBarsCount; i++) {
             int h = bands[i];
             if (h < 2) h = 2;
-            if (h > 32) h = 32;
+            if (h > 34) h = 34;
 
             if (wave_bars_[i]) {
                 lv_obj_set_height(wave_bars_[i], h);
@@ -236,9 +236,9 @@ public:
             lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
         }
 
-        // 3. 屏幕正中间平时展示的纯白水平直线 (宽140px, 高2px, 居中对齐)
+        // 3. 屏幕正中间平时展示的纯白水平直线 (宽186px, 高2px, 居中对齐)
         center_line_obj_ = lv_obj_create(screen);
-        lv_obj_set_size(center_line_obj_, 140, 2);
+        lv_obj_set_size(center_line_obj_, 186, 2);
         lv_obj_set_style_bg_color(center_line_obj_, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_bg_opa(center_line_obj_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(center_line_obj_, 0, 0);
@@ -248,7 +248,7 @@ public:
 
         // 4. 屏幕正中间动态波浪条容器 (录音与播放时动态显示真实 FFT 频谱)
         wave_container_ = lv_obj_create(screen);
-        lv_obj_set_size(wave_container_, 140, 40);
+        lv_obj_set_size(wave_container_, 190, 40);
         lv_obj_set_style_bg_opa(wave_container_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(wave_container_, 0, 0);
         lv_obj_set_style_pad_all(wave_container_, 0, 0);
@@ -411,9 +411,9 @@ public:
             lv_label_set_long_mode(gateway_item_labels_[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_style_text_align(gateway_item_labels_[i], LV_TEXT_ALIGN_CENTER, 0);
 
-            // 选中选项单横线下划线指示 (宽120, 高2px, 零边距)
+            // 选中选项单横线下划线指示 (宽150, 高2px, 零边距)
             gateway_item_lines_[i] = lv_obj_create(gateway_item_containers_[i]);
-            lv_obj_set_size(gateway_item_lines_[i], 120, 2);
+            lv_obj_set_size(gateway_item_lines_[i], 150, 2);
             lv_obj_set_style_bg_color(gateway_item_lines_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_style_bg_opa(gateway_item_lines_[i], LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(gateway_item_lines_[i], 0, 0);
@@ -497,9 +497,9 @@ public:
             lv_label_set_long_mode(project_item_labels_[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_style_text_align(project_item_labels_[i], LV_TEXT_ALIGN_CENTER, 0);
 
-            // 选中选项单横线下划线指示 (宽120, 高2px, 零边距)
+            // 选中选项单横线下划线指示 (宽150, 高2px, 零边距)
             project_item_lines_[i] = lv_obj_create(project_item_containers_[i]);
-            lv_obj_set_size(project_item_lines_[i], 120, 2);
+            lv_obj_set_size(project_item_lines_[i], 150, 2);
             lv_obj_set_style_bg_color(project_item_lines_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_style_bg_opa(project_item_lines_[i], LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(project_item_lines_[i], 0, 0);
@@ -583,9 +583,9 @@ public:
             lv_label_set_long_mode(settings_item_labels_[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_style_text_align(settings_item_labels_[i], LV_TEXT_ALIGN_CENTER, 0);
 
-            // 选中选项单横线下划线指示 (宽120, 高2px, 零边距)
+            // 选中选项单横线下划线指示 (宽150, 高2px, 零边距)
             settings_item_lines_[i] = lv_obj_create(settings_item_containers_[i]);
-            lv_obj_set_size(settings_item_lines_[i], 120, 2);
+            lv_obj_set_size(settings_item_lines_[i], 150, 2);
             lv_obj_set_style_bg_color(settings_item_lines_[i], lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_style_bg_opa(settings_item_lines_[i], LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(settings_item_lines_[i], 0, 0);
@@ -736,9 +736,24 @@ public:
             }, 50, this);
         }
 
-        // 12. 确保底部栏默认隐藏，保持纯粹极简
+        // 12. 确保底部语音文本栏严格单行显示且默认隐藏
         if (bottom_bar_) {
+            int bar_h = text_font ? (text_font->line_height + 8) : 26;
+            lv_obj_set_size(bottom_bar_, 240, bar_h);
+            lv_obj_set_style_max_height(bottom_bar_, bar_h, 0);
+            lv_obj_align(bottom_bar_, LV_ALIGN_BOTTOM_MID, 0, 0);
+            lv_obj_set_style_pad_all(bottom_bar_, 0, 0);
+            lv_obj_set_style_pad_left(bottom_bar_, 4, 0);
+            lv_obj_set_style_pad_right(bottom_bar_, 4, 0);
+            lv_obj_set_scrollbar_mode(bottom_bar_, LV_SCROLLBAR_MODE_OFF);
+            lv_obj_clear_flag(bottom_bar_, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (chat_message_label_) {
+            lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+            lv_obj_set_width(chat_message_label_, 232);
+            lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_align(chat_message_label_, LV_ALIGN_CENTER, 0, 0);
         }
 
         // 13. 初始化并应用保存的主题纯黑白样式
@@ -955,16 +970,9 @@ public:
                     lv_color_t line_col = is_theme_inverted_ ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
                     lv_obj_set_style_bg_color(gateway_item_lines_[i], line_col, 0);
                     lv_obj_remove_flag(gateway_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_set_style_border_side(gateway_item_containers_[i], LV_BORDER_SIDE_BOTTOM, 0);
-                    lv_obj_set_style_border_width(gateway_item_containers_[i], 2, 0);
-                    lv_obj_set_style_border_color(gateway_item_containers_[i], line_col, 0);
                     lv_obj_scroll_to_view(gateway_item_containers_[i], LV_ANIM_ON);
-                    if (gateway_item_lines_[i]) {
-                        lv_obj_scroll_to_view(gateway_item_lines_[i], LV_ANIM_ON);
-                    }
                 } else {
                     lv_obj_add_flag(gateway_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_set_style_border_width(gateway_item_containers_[i], 0, 0);
                 }
             } else {
                 lv_obj_add_flag(gateway_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
@@ -1104,16 +1112,9 @@ public:
                     lv_color_t line_col = is_theme_inverted_ ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
                     lv_obj_set_style_bg_color(project_item_lines_[i], line_col, 0);
                     lv_obj_remove_flag(project_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_set_style_border_side(project_item_containers_[i], LV_BORDER_SIDE_BOTTOM, 0);
-                    lv_obj_set_style_border_width(project_item_containers_[i], 2, 0);
-                    lv_obj_set_style_border_color(project_item_containers_[i], line_col, 0);
                     lv_obj_scroll_to_view(project_item_containers_[i], LV_ANIM_ON);
-                    if (project_item_lines_[i]) {
-                        lv_obj_scroll_to_view(project_item_lines_[i], LV_ANIM_ON);
-                    }
                 } else {
                     lv_obj_add_flag(project_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_set_style_border_width(project_item_containers_[i], 0, 0);
                 }
             } else {
                 lv_obj_add_flag(project_item_containers_[i], LV_OBJ_FLAG_HIDDEN);
@@ -1218,16 +1219,9 @@ public:
                 lv_color_t line_col = is_theme_inverted_ ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
                 lv_obj_set_style_bg_color(settings_item_lines_[i], line_col, 0);
                 lv_obj_remove_flag(settings_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_border_side(settings_item_containers_[i], LV_BORDER_SIDE_BOTTOM, 0);
-                lv_obj_set_style_border_width(settings_item_containers_[i], 2, 0);
-                lv_obj_set_style_border_color(settings_item_containers_[i], line_col, 0);
                 lv_obj_scroll_to_view(settings_item_containers_[i], LV_ANIM_ON);
-                if (settings_item_lines_[i]) {
-                    lv_obj_scroll_to_view(settings_item_lines_[i], LV_ANIM_ON);
-                }
             } else {
                 lv_obj_add_flag(settings_item_lines_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_border_width(settings_item_containers_[i], 0, 0);
             }
         }
     }
@@ -1513,12 +1507,105 @@ public:
         // 彻底屏蔽 Emoji 图标，屏幕正中只保持直线与流动波浪线
     }
 
+    virtual void ClearChatMessages() override {
+        DisplayLockGuard lock(this);
+        if (chat_message_label_ != nullptr) {
+            lv_anim_delete(chat_message_label_, nullptr);
+            lv_label_set_text(chat_message_label_, "");
+        }
+        if (bottom_bar_ != nullptr) {
+            lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
     virtual void SetChatMessage(const char* role, const char* content) override {
         if (strcmp(role, "system") == 0) {
             ClearChatMessages();
             return;
         }
-        SpiLcdDisplay::SetChatMessage(role, content);
+
+        DisplayLockGuard lock(this);
+        if (chat_message_label_ == nullptr) {
+            return;
+        }
+
+        if (content == nullptr || content[0] == '\0') {
+            ClearChatMessages();
+            return;
+        }
+
+        // 1. 将换行符换为空格，杜绝任何换行多行，严格保证只显示一行
+        std::string single_line_text;
+        single_line_text.reserve(strlen(content));
+        for (const char* p = content; *p != '\0'; p++) {
+            if (*p == '\r' || *p == '\n') {
+                if (!single_line_text.empty() && single_line_text.back() != ' ') {
+                    single_line_text.push_back(' ');
+                }
+            } else {
+                single_line_text.push_back(*p);
+            }
+        }
+
+        // 2. 统计实际可见字符数 (识别 UTF-8 多字节汉字与 ASCII 单字节)
+        size_t char_count = 0;
+        for (size_t i = 0; i < single_line_text.size(); ) {
+            unsigned char c = (unsigned char)single_line_text[i];
+            if (c < 0x80) i += 1;
+            else if ((c & 0xE0) == 0xC0) i += 2;
+            else if ((c & 0xF0) == 0xE0) i += 3;
+            else if ((c & 0xF8) == 0xF0) i += 4;
+            else i += 1;
+            char_count++;
+        }
+
+        // 3. 计算文本像素宽度以精确获得滚动的实际位移
+        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+        const lv_font_t* text_font = lvgl_theme && lvgl_theme->text_font() ? lvgl_theme->text_font()->font() : nullptr;
+        int32_t text_w = 0;
+        if (text_font) {
+            lv_point_t size;
+            lv_text_get_size(&size, single_line_text.c_str(), text_font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+            text_w = size.x;
+        } else {
+            text_w = char_count * 16;
+        }
+
+        // 4. 自适应滚动速度算法:
+        // 用户需求: "文字少的时候 移动慢一点 多的时候稍微快一点"
+        // 文字较少 (<=15 个汉字): 25 px/sec (慢速平缓，一眼读懂)
+        // 文字增多时: 速度平滑加速，当字数达到 60~80 字时渐进提升至 75~80 px/sec (高效畅读)
+        uint32_t speed_px_per_sec = 25;
+        if (char_count > 15) {
+            speed_px_per_sec = 25 + (uint32_t)((char_count - 15) * 8 / 10);
+            if (speed_px_per_sec > 80) {
+                speed_px_per_sec = 80;
+            }
+        }
+
+        // 总滚动距离 = 文本总像素宽度 + 循环首尾间隔空白
+        uint32_t total_distance = text_w + 60;
+        uint32_t duration_ms = (total_distance * 1000) / speed_px_per_sec;
+        if (duration_ms < 1000) duration_ms = 1000;
+
+        // 5. 应用单行循环跑马灯与动态计算的动画时长
+        lv_anim_delete(chat_message_label_, nullptr);
+        lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_width(chat_message_label_, 232);
+        lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_anim_duration(chat_message_label_, duration_ms, LV_PART_MAIN);
+
+        // 6. 填入单行文本并显示单行底部栏
+        lv_label_set_text(chat_message_label_, single_line_text.c_str());
+
+        if (bottom_bar_ != nullptr) {
+            int bar_h = text_font ? (text_font->line_height + 8) : 26;
+            lv_obj_set_size(bottom_bar_, 240, bar_h);
+            lv_obj_align(bottom_bar_, LV_ALIGN_BOTTOM_MID, 0, 0);
+            if (!hide_subtitle_) {
+                lv_obj_remove_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
     }
 
     virtual void SetTheme(Theme* theme) override {
