@@ -1296,12 +1296,10 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         display->ShowProgress(0, 0);
     }
 
-    bool upgrade_success = Ota::Upgrade(upgrade_url, [this, display](int progress, size_t speed) {
-        Schedule([display, progress, speed]() {
-            if (display) {
-                display->ShowProgress(progress, speed);
-            }
-        });
+    bool upgrade_success = Ota::Upgrade(upgrade_url, [display](int progress, size_t speed) {
+        if (display) {
+            display->ShowProgress(progress, speed);
+        }
     });
 
     if (!upgrade_success) {

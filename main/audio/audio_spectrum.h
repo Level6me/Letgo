@@ -32,10 +32,18 @@ public:
         float real[kFftSize];
         float imag[kFftSize];
 
-        // 汉宁窗 (Hanning Window) 预处理
+        // 汉宁窗 (Hanning Window) 静态预计算查表，彻底消除运行时 128 次 soft-float cosf() 开销
+        static bool hanning_init = false;
+        static float hanning_lut[kFftSize];
+        if (!hanning_init) {
+            for (size_t i = 0; i < kFftSize; i++) {
+                hanning_lut[i] = 0.5f * (1.0f - cosf(2.0f * (float)M_PI * (float)i / (float)(kFftSize - 1)));
+            }
+            hanning_init = true;
+        }
+
         for (size_t i = 0; i < kFftSize; i++) {
-            float hanning = 0.5f * (1.0f - cosf(2.0f * (float)M_PI * (float)i / (float)(kFftSize - 1)));
-            real[i] = ((float)input[i] / 32768.0f) * hanning;
+            real[i] = ((float)input[i] / 32768.0f) * hanning_lut[i];
             imag[i] = 0.0f;
         }
 

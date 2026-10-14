@@ -1493,6 +1493,7 @@ public:
         char st_buf[32];
         snprintf(st_buf, sizeof(st_buf), "OTA %d%%", progress);
         SetStatus(st_buf);
+        lv_refr_now(nullptr);
     }
 
     virtual void HideProgress() override {

@@ -372,7 +372,14 @@ void AudioService::AudioOutputTask() {
             callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
         }
 
-        // 计算即时输出 RMS 能量值与 FFT 15频段真实频谱
+        // 优先将音频数据写入 I2S DMA 硬件缓冲区，确保功放绝不产生 DMA 欠载破音与断流
+        codec_->OutputData(task.pcm);
+
+        /* Update the last output time */
+        last_output_time_ = std::chrono::steady_clock::now();
+        debug_statistics_.playback_count++;
+
+        // 在音频已安全送入硬件 DMA 后，再计算 RMS 能量值与 21 频段频谱（适当抽样减轻单核 CPU 压力）
         if (!task.pcm.empty()) {
             uint64_t sum_squares = 0;
             size_t n = task.pcm.size();
@@ -383,10 +390,14 @@ void AudioService::AudioOutputTask() {
             uint16_t rms = static_cast<uint16_t>(sqrt(sum_squares / n));
             output_energy_rms_.store(rms, std::memory_order_relaxed);
 
-            uint8_t bands[AudioSpectrum::kNumBands];
-            AudioSpectrum::Analyze(task.pcm.data(), task.pcm.size(), bands, decay_bands_);
-            for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
-                spectrum_bands_[i].store(bands[i], std::memory_order_relaxed);
+            static uint8_t output_spectrum_decimate = 0;
+            if (++output_spectrum_decimate >= 2) {
+                output_spectrum_decimate = 0;
+                uint8_t bands[AudioSpectrum::kNumBands];
+                AudioSpectrum::Analyze(task.pcm.data(), task.pcm.size(), bands, decay_bands_);
+                for (size_t i = 0; i < AudioSpectrum::kNumBands; i++) {
+                    spectrum_bands_[i].store(bands[i], std::memory_order_relaxed);
+                }
             }
         } else {
             output_energy_rms_.store(0, std::memory_order_relaxed);
@@ -395,12 +406,6 @@ void AudioService::AudioOutputTask() {
                 decay_bands_[i] = 2;
             }
         }
-
-        codec_->OutputData(task.pcm);
-
-        /* Update the last output time */
-        last_output_time_ = std::chrono::steady_clock::now();
-        debug_statistics_.playback_count++;
 
         bool notify_drained = false;
         lock.lock();
