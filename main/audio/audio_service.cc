@@ -7,7 +7,7 @@
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)                                        \
     (esp_ae_rate_cvt_cfg_t) {                                                                \
         .src_rate = (uint32_t)(_src_rate), .dest_rate = (uint32_t)(_dest_rate),              \
-        .channel = (uint8_t)(_channel), .bits_per_sample = ESP_AUDIO_BIT16, .complexity = 2, \
+        .channel = (uint8_t)(_channel), .bits_per_sample = ESP_AUDIO_BIT16, .complexity = 3, \
         .perf_type = ESP_AE_RATE_CVT_PERF_TYPE_SPEED,                                        \
     }
 
@@ -193,6 +193,8 @@ void AudioService::Stop() {
         audio_decode_queue_.clear();
         audio_playback_queue_.clear();
         audio_testing_queue_.clear();
+        need_prebuffer_ = true;
+        is_stream_first_chunk_ = true;
         notify_drained = MarkPlaybackDrainedLocked();
         audio_queue_cv_.notify_all();
     }
@@ -363,9 +365,36 @@ void AudioService::AudioOutputTask() {
             break;
         }
 
+        // 1. 自适应抖动预缓冲（Adaptive Jitter Prebuffering）：
+        // 若当前处于新起播或断流恢复状态，且有网络音频流在下发（解码队列非空或正在解码），
+        // 蓄水至至少 2 帧（约 120ms）或至多等待 80ms 超时，彻底吸收网络抖动消除断流卡顿；
+        // 若无网络包在排队（本地单一提示音），则无需等待立即播放。
+        if (need_prebuffer_) {
+            constexpr size_t kPrebufferFrames = 2;
+            bool is_network_stream = (!audio_decode_queue_.empty() || decode_in_flight_);
+            if (is_network_stream && audio_playback_queue_.size() < kPrebufferFrames) {
+                audio_queue_cv_.wait_for(lock, std::chrono::milliseconds(80), [this, kPrebufferFrames]() {
+                    return service_stopped_.load() || audio_playback_queue_.size() >= kPrebufferFrames;
+                });
+                if (service_stopped_.load()) {
+                    break;
+                }
+                if (audio_playback_queue_.empty()) {
+                    continue;
+                }
+            }
+            need_prebuffer_ = false;
+            is_stream_first_chunk_ = true;
+        }
+
         auto task = std::move(audio_playback_queue_.front());
         audio_playback_queue_.pop_front();
         output_in_flight_ = true;
+
+        // 检查弹出后队列是否已空（判断是否为流尾或可能断流）
+        bool will_be_empty =
+            audio_playback_queue_.empty() && audio_decode_queue_.empty() && !decode_in_flight_;
+
         audio_queue_cv_.notify_all();
         lock.unlock();
 
@@ -379,20 +408,65 @@ void AudioService::AudioOutputTask() {
             callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
         }
 
-        // 优先将音频数据写入 I2S DMA 硬件缓冲区，确保功放绝不产生 DMA 欠载破音与断流
-        codec_->OutputData(task.pcm);
-
-        /* Update the last output time */
-        last_output_time_ = std::chrono::steady_clock::now();
-        debug_statistics_.playback_count++;
-
-        // 2. 仅计算即时输出 RMS 能量（轻量定点数计算，耗时不足 5 微秒，彻底避免阻塞音频消费队列）
         if (!task.pcm.empty()) {
+            const size_t sample_rate = codec_->output_sample_rate();
+
+            // 2. 软淡入（Soft Fade-in）：流起始前 3ms 线性平滑渐入，消除 PA 使能电容充电与首帧电平跳变爆音
+            if (is_stream_first_chunk_) {
+                is_stream_first_chunk_ = false;
+                size_t fade_len = std::min(task.pcm.size(), (size_t)(sample_rate * 3 / 1000));
+                if (fade_len > 0) {
+                    for (size_t i = 0; i < fade_len; i++) {
+                        task.pcm[i] = static_cast<int16_t>(
+                            (static_cast<int32_t>(task.pcm[i]) * static_cast<int32_t>(i)) /
+                            static_cast<int32_t>(fade_len));
+                    }
+                }
+            }
+
+            // 3. 软淡出（Soft Fade-out）：流结尾末 3ms 平滑渐出归零，消除 DMA 欠载补零直角截断爆音
+            if (will_be_empty) {
+                size_t fade_len = std::min(task.pcm.size(), (size_t)(sample_rate * 3 / 1000));
+                if (fade_len > 0) {
+                    size_t start = task.pcm.size() - fade_len;
+                    for (size_t i = 0; i < fade_len; i++) {
+                        task.pcm[start + i] = static_cast<int16_t>(
+                            (static_cast<int32_t>(task.pcm[start + i]) *
+                             static_cast<int32_t>(fade_len - i)) /
+                            static_cast<int32_t>(fade_len));
+                    }
+                }
+            }
+
+            // 4. 软限幅器（Soft Limiter）：消除大音量数字削顶破音（Anti-clipping）
+            constexpr int32_t kLimitThreshold = 28000;
+            constexpr int32_t kLimitRange = 32767 - kLimitThreshold;
+            for (size_t i = 0; i < task.pcm.size(); i++) {
+                int32_t s = task.pcm[i];
+                if (s > kLimitThreshold) {
+                    int32_t excess = s - kLimitThreshold;
+                    task.pcm[i] = static_cast<int16_t>(
+                        kLimitThreshold + (excess * kLimitRange) / (excess + kLimitRange));
+                } else if (s < -kLimitThreshold) {
+                    int32_t excess = -s - kLimitThreshold;
+                    task.pcm[i] = static_cast<int16_t>(
+                        -(kLimitThreshold + (excess * kLimitRange) / (excess + kLimitRange)));
+                }
+            }
+
+            // 5. 优先将音频数据写入 I2S DMA 硬件缓冲区，确保功放绝不产生 DMA 欠载破音与断流
+            codec_->OutputData(task.pcm);
+
+            /* Update the last output time */
+            last_output_time_ = std::chrono::steady_clock::now();
+            debug_statistics_.playback_count++;
+
+            // 6. 仅计算即时输出 RMS 能量（轻量定点数计算，耗时不足 5 微秒，彻底避免阻塞音频消费队列）
             uint64_t sum_squares = 0;
             size_t n = task.pcm.size();
             for (size_t i = 0; i < n; i++) {
                 int32_t sample = task.pcm[i];
-                sum_squares += (uint64_t)(sample * sample);
+                sum_squares += static_cast<uint64_t>(sample * sample);
             }
             uint16_t rms = static_cast<uint16_t>(sqrt(sum_squares / n));
             output_energy_rms_.store(rms, std::memory_order_relaxed);
@@ -412,7 +486,21 @@ void AudioService::AudioOutputTask() {
         }
 #endif
         output_in_flight_ = false;
-        notify_drained = MarkPlaybackDrainedLocked();
+
+        // 7. 防虚假排空与断流保护：
+        // 若队列已空，标记下次起播重新触发预缓冲，并延迟确认是否真正排空（避免两包之间微小抖动误杀播放流）
+        if (audio_playback_queue_.empty()) {
+            need_prebuffer_ = true;
+            if (IsPlaybackDrainedLocked()) {
+                audio_queue_cv_.wait_for(lock, std::chrono::milliseconds(60), [this]() {
+                    return service_stopped_.load() || !IsPlaybackDrainedLocked();
+                });
+                notify_drained = MarkPlaybackDrainedLocked();
+            }
+        } else {
+            notify_drained = MarkPlaybackDrainedLocked();
+        }
+
         audio_queue_cv_.notify_all();
         lock.unlock();
 
@@ -613,6 +701,9 @@ void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
         if (output_resampler_ == nullptr) {
             ESP_LOGE(TAG, "Failed to create output resampler, error code: %d", resampler_ret);
         }
+    } else if (output_resampler_ != nullptr) {
+        esp_ae_rate_cvt_close(output_resampler_);
+        output_resampler_ = nullptr;
     }
 }
 
@@ -961,6 +1052,8 @@ void AudioService::ResetDecoder() {
         audio_decode_queue_.clear();
         audio_playback_queue_.clear();
         audio_testing_queue_.clear();
+        need_prebuffer_ = true;
+        is_stream_first_chunk_ = true;
         notify_drained = MarkPlaybackDrainedLocked();
         audio_queue_cv_.notify_all();
     }

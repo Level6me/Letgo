@@ -40,7 +40,7 @@
 
 #define OPUS_FRAME_DURATION_MS 60
 #define MAX_ENCODE_TASKS_IN_QUEUE 6
-#define MAX_PLAYBACK_TASKS_IN_QUEUE 6
+#define MAX_PLAYBACK_TASKS_IN_QUEUE 8
 #define MAX_DECODE_PACKETS_IN_QUEUE (1200 / OPUS_FRAME_DURATION_MS)
 #define MAX_SEND_PACKETS_IN_QUEUE (2400 / OPUS_FRAME_DURATION_MS)
 #define AUDIO_TESTING_MAX_DURATION_MS 10000
@@ -198,6 +198,8 @@ private:
     bool decode_in_flight_ = false;
     bool output_in_flight_ = false;
     bool playback_drained_notified_ = true;
+    bool need_prebuffer_ = true;
+    bool is_stream_first_chunk_ = true;
     uint32_t playback_generation_ = 0;
     // For server AEC
     FixedQueue<uint32_t, MAX_TIMESTAMPS_IN_QUEUE> timestamp_queue_;
