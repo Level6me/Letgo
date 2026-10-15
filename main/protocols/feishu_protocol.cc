@@ -724,7 +724,15 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         auto text = cJSON_GetObjectItem(root, "text");
         if (cJSON_IsString(text) && display) {
             std::string msg = text->valuestring;
+            if (msg.size() > 128) {
+                size_t cut_len = 120;
+                while (cut_len > 0 && (static_cast<unsigned char>(msg[cut_len]) & 0xC0) == 0x80) {
+                    cut_len--;
+                }
+                msg = msg.substr(0, cut_len) + "...";
+            }
             Application::GetInstance().Schedule([display, msg]() {
+                Application::GetInstance().DismissAlert();
                 Application::GetInstance().SetFeishuAwaitingReply(false);
                 display->SetChatMessage("assistant", msg.c_str());
                 display->SetEmotion("speaking");
@@ -747,6 +755,13 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         auto content = cJSON_GetObjectItem(root, "content");
         std::string t = cJSON_IsString(title) ? title->valuestring : "ALERT";
         std::string c = cJSON_IsString(content) ? content->valuestring : "";
+        if (c.size() > 128) {
+            size_t cut_len = 120;
+            while (cut_len > 0 && (static_cast<unsigned char>(c[cut_len]) & 0xC0) == 0x80) {
+                cut_len--;
+            }
+            c = c.substr(0, cut_len) + "...";
+        }
         Application::GetInstance().Schedule([t, c]() {
             Application::GetInstance().Alert(t.c_str(), c.c_str(), "danger");
         });
