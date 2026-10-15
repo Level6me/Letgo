@@ -849,6 +849,30 @@ public:
         HideSettingsList();
         SetStatus("");
         cached_gateways_ = gateways;
+
+        auto& app = Application::GetInstance();
+        bool is_conn = app.IsFeishuConnected();
+        std::string cur_ip = app.GetFeishuGatewayIp();
+        int cur_port = app.GetFeishuGatewayPort();
+        std::string cur_name = app.GetFeishuGatewayName();
+        if (cur_name.empty()) cur_name = "飞书控制台";
+
+        // 若当前已经连接网关，确保当前连接的网关处于列表且置顶标记
+        if (is_conn && !cur_ip.empty()) {
+            bool found = false;
+            for (auto& gw : cached_gateways_) {
+                if (gw.ip == cur_ip && gw.port == cur_port) {
+                    gw.is_paired = true;
+                    if (!cur_name.empty()) gw.name = cur_name;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                cached_gateways_.insert(cached_gateways_.begin(), FeishuGateway{cur_name, cur_ip, cur_port, true});
+            }
+        }
+
         selected_gateway_index_ = 0;
         for (size_t i = 0; i < cached_gateways_.size(); i++) {
             if (cached_gateways_[i].is_paired) {
@@ -975,8 +999,9 @@ public:
                 const auto& gw = cached_gateways_[i];
 
                 char buf[64];
-                const char* star = gw.is_paired ? "★ " : "";
-                snprintf(buf, sizeof(buf), "%s%s (%s)", star, gw.name.c_str(), gw.ip.c_str());
+                // 当前已经连接的服务在前面显示三角 ▲，其他的不显示任何前缀
+                const char* prefix = gw.is_paired ? "▲ " : "";
+                snprintf(buf, sizeof(buf), "%s%s (%s)", prefix, gw.name.c_str(), gw.ip.c_str());
                 lv_label_set_text(gateway_item_labels_[i], buf);
 
                 if ((int)i == selected_gateway_index_) {
@@ -1277,7 +1302,13 @@ public:
                     self->HideDeviceInfo();
                     Application::GetInstance().Schedule([self]() {
                         auto& app = Application::GetInstance();
-                        self->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                        if (app.IsFeishuConnected()) {
+                            std::string gw_title = app.GetFeishuGatewayName();
+                            if (gw_title.empty()) gw_title = "飞书控制台";
+                            self->SetStatus(gw_title.c_str());
+                        } else {
+                            self->SetStatus("[待命]");
+                        }
                         self->ShowIdleStraightLine();
                     });
                 },
@@ -1679,8 +1710,7 @@ private:
                             self->ok_menu_closed_by_long_press_ = true;
                             self->display_->HideAllMenus();
                             self->display_->ShowNotification("已返回主界面", 1200);
-                            auto& app = Application::GetInstance();
-                            self->display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                            self->SetIdleStatus();
                             self->display_->ShowIdleStraightLine();
                             ESP_LOGI(TAG, "Menu closed by OK long press (500ms timer)");
                         }
@@ -1699,6 +1729,18 @@ private:
     void StopMenuLongPressTimer() {
         if (menu_long_press_timer_) {
             esp_timer_stop(menu_long_press_timer_);
+        }
+    }
+
+    void SetIdleStatus() {
+        if (!display_) return;
+        auto& app = Application::GetInstance();
+        if (app.IsFeishuConnected()) {
+            std::string gw_title = app.GetFeishuGatewayName();
+            if (gw_title.empty()) gw_title = "飞书控制台";
+            display_->SetStatus(gw_title.c_str());
+        } else {
+            display_->SetStatus("[待命]");
         }
     }
 
@@ -1723,10 +1765,7 @@ private:
         if (display_->IsAnyMenuVisible()) return;
         is_in_standby_clock_ = true;
 
-        auto& app = Application::GetInstance();
-        bool feishu_online = app.IsFeishuConnected();
-
-        display_->SetStatus(feishu_online ? "[已连接]" : "[待命]");
+        SetIdleStatus();
         display_->ShowIdleStraightLine();
         display_->SetWaveTimerPaused(true);
     }
@@ -1736,9 +1775,8 @@ private:
         is_in_standby_clock_ = false;
         if (display_) {
             display_->SetWaveTimerPaused(false);
-            auto& app = Application::GetInstance();
             display_->ShowIdleStraightLine();
-            display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+            SetIdleStatus();
         }
     }
 
@@ -1807,7 +1845,7 @@ private:
             app.SetFeishuAwaitingReply(false);
             if (display_) {
                 display_->ShowNotification("说话时间太短", 1500);
-                display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                SetIdleStatus();
             }
             return;
         }
@@ -1940,6 +1978,7 @@ private:
                 if (display_) {
                     display_->HideSettingsList();
                     auto& app = Application::GetInstance();
+                    app.TriggerFeishuDiscovery();
                     auto gateways = app.GetDiscoveredFeishuGateways();
                     display_->ShowGatewayList(gateways);
                 }
@@ -2036,8 +2075,7 @@ private:
                 if (display_->IsDeviceInfoVisible()) {
                     display_->HideDeviceInfo();
                     display_->ShowIdleStraightLine();
-                    auto& app = Application::GetInstance();
-                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                    SetIdleStatus();
                     return;
                 }
                 if (display_->IsGatewayListVisible()) {
@@ -2076,7 +2114,7 @@ private:
                 if (!app.IsFeishuConnected()) {
                     if (display_) {
                         display_->ShowNotification("正在搜索网关...", 3000);
-                        display_->SetStatus("[待命]");
+                        SetIdleStatus();
                     }
                     app.TriggerFeishuDiscovery();
                 } else {
@@ -2104,8 +2142,7 @@ private:
                 if (display_->IsDeviceInfoVisible()) {
                     display_->HideDeviceInfo();
                     display_->ShowIdleStraightLine();
-                    auto& app = Application::GetInstance();
-                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                    SetIdleStatus();
                     return;
                 }
                 if (display_->IsGatewayListVisible()) {
@@ -2169,7 +2206,7 @@ private:
                 app.GetAudioService().ResetDecoder();
                 if (display_) {
                     display_->ShowNotification("已打断", 1200);
-                    display_->SetStatus("[待命]");
+                    SetIdleStatus();
                     display_->ShowIdleStraightLine();
                 }
                 ok_speech_aborted_ = true;
@@ -2209,8 +2246,7 @@ private:
                 ok_menu_closed_by_long_press_ = true;
                 display_->HideAllMenus();
                 display_->ShowNotification("已返回主界面", 1200);
-                auto& app = Application::GetInstance();
-                display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                SetIdleStatus();
                 display_->ShowIdleStraightLine();
                 ESP_LOGI(TAG, "Menu closed by OK OnLongPress");
             }
@@ -2246,16 +2282,14 @@ private:
                 if (duration_ms >= 500) {
                     display_->HideAllMenus();
                     display_->ShowNotification("已返回主界面", 1200);
-                    auto& app = Application::GetInstance();
-                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                    SetIdleStatus();
                     display_->ShowIdleStraightLine();
                     return;
                 }
                 if (display_->IsDeviceInfoVisible()) {
                     display_->HideDeviceInfo();
                     display_->ShowIdleStraightLine();
-                    auto& app = Application::GetInstance();
-                    display_->SetStatus(app.IsFeishuConnected() ? "[已连接]" : "[待命]");
+                    SetIdleStatus();
                     return;
                 }
                 if (display_->IsGatewayListVisible()) {
@@ -2519,12 +2553,15 @@ public:
         esp_timer_create(&dim_timer_args, &dim_timer_);
         esp_timer_start_periodic(dim_timer_, 2000000);
 
-        // 监听局域网飞书网关列表变动，若未连接且发现候选网关，自动呼出选择弹窗
+        // 监听局域网飞书网关列表变动，若未连接且发现候选网关，自动呼出选择弹窗；若弹窗正打开，实时刷新列表
         Application::GetInstance().SetOnFeishuGatewaysChanged([this](const std::vector<FeishuGateway>& gateways) {
             if (!display_) return;
             auto& app = Application::GetInstance();
+            if (display_->IsGatewayListVisible()) {
+                display_->ShowGatewayList(gateways);
+                return;
+            }
             if (app.IsFeishuConnected()) {
-                display_->HideGatewayList();
                 return;
             }
             if (!gateways.empty()) {

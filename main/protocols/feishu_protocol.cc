@@ -54,9 +54,14 @@ bool FeishuProtocol::Start() {
     is_paired_ = settings.GetBool("paired", false);
     gateway_ip_ = settings.GetString("gw_ip");
     gateway_port_ = settings.GetInt("gw_port", DEFAULT_FEISHU_PORT);
+    gateway_name_ = settings.GetString("gw_name");
+    if (gateway_name_.empty()) {
+        gateway_name_ = "飞书控制台";
+    }
 
     if (is_paired_ && !gateway_ip_.empty()) {
-        ESP_LOGI(TAG, "Attempting direct connect to paired gateway: %s:%d", gateway_ip_.c_str(), gateway_port_);
+        ESP_LOGI(TAG, "Attempting direct connect to paired gateway: %s (%s:%d)",
+                 gateway_name_.c_str(), gateway_ip_.c_str(), gateway_port_);
         ConnectToGateway(gateway_ip_, gateway_port_);
     }
 
@@ -76,96 +81,97 @@ void FeishuProtocol::StartDiscovery() {
         const char* probe = "DISCOVER_FEISHU_PASSPORT";
 
         while (true) {
-            if (!self->connected_) {
-                int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-                if (sock >= 0) {
-                    int broadcast = 1;
-                    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+            // 每 5 秒广播探测一次局域网内的所有可用网关实例
+            int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+            if (sock >= 0) {
+                int broadcast = 1;
+                setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
 
-                    struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
-                    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+                struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
+                setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-                    struct sockaddr_in dest_addr;
-                    dest_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-                    dest_addr.sin_family = AF_INET;
-                    dest_addr.sin_port = htons(DEFAULT_FEISHU_PORT);
+                struct sockaddr_in dest_addr;
+                dest_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+                dest_addr.sin_family = AF_INET;
+                dest_addr.sin_port = htons(DEFAULT_FEISHU_PORT);
 
-                    sendto(sock, probe, strlen(probe), 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+                sendto(sock, probe, strlen(probe), 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
 
+                // 循环接收可能来自多个网关实例的应答
+                while (true) {
                     struct sockaddr_storage src_addr;
                     socklen_t addr_len = sizeof(src_addr);
                     int len = recvfrom(sock, rx_buf, sizeof(rx_buf) - 1, 0, (struct sockaddr*)&src_addr, &addr_len);
-                    if (len > 0) {
-                        rx_buf[len] = '\0';
-                        cJSON* root = cJSON_Parse(rx_buf);
-                        if (root) {
-                            auto service = cJSON_GetObjectItem(root, "service");
-                            if (cJSON_IsString(service) && strcmp(service->valuestring, "feishu_passport") == 0) {
-                                struct sockaddr_in* sin = (struct sockaddr_in*)&src_addr;
-                                char ip_str[32];
-                                inet_ntop(AF_INET, &sin->sin_addr, ip_str, sizeof(ip_str));
-
-                                auto port_item = cJSON_GetObjectItem(root, "ws_port");
-                                int port = cJSON_IsNumber(port_item) ? port_item->valueint : DEFAULT_FEISHU_PORT;
-
-                                auto name_item = cJSON_GetObjectItem(root, "name");
-                                std::string gw_name = cJSON_IsString(name_item) ? name_item->valuestring : "飞书控制台";
-
-                                ESP_LOGI(TAG, "Discovered Feishu gateway: %s (%s:%d)", gw_name.c_str(), ip_str, port);
-
-                                // 若已配对且当前未连接，直接连接已配对网关
-                                if (self->is_paired_ && self->gateway_ip_ == ip_str) {
-                                    close(sock);
-                                    cJSON_Delete(root);
-                                    self->ConnectToGateway(ip_str, port);
-                                    vTaskDelay(pdMS_TO_TICKS(5000));
-                                    continue;
-                                }
-
-                                // 记录并更新到候选网关列表中
-                                bool is_new = false;
-                                {
-                                    std::lock_guard<std::mutex> lock(self->gateways_mutex_);
-                                    bool exists = false;
-                                    bool is_history_paired = (self->is_paired_ && self->gateway_ip_ == ip_str);
-                                    for (auto& gw : self->discovered_gateways_) {
-                                        if (gw.ip == ip_str && gw.port == port) {
-                                            gw.name = gw_name;
-                                            gw.is_paired = is_history_paired;
-                                            exists = true;
-                                            break;
-                                        }
-                                    }
-                                    if (!exists) {
-                                        FeishuGateway new_gw{gw_name, ip_str, port, is_history_paired};
-                                        if (is_history_paired) {
-                                            self->discovered_gateways_.insert(self->discovered_gateways_.begin(), new_gw);
-                                        } else {
-                                            self->discovered_gateways_.push_back(new_gw);
-                                        }
-                                        is_new = true;
-                                    }
-                                    self->pending_gw_ip_ = ip_str;
-                                    self->pending_gw_port_ = port;
-                                    self->pending_gw_name_ = gw_name;
-                                }
-
-                                if (is_new && self->on_gateways_changed_) {
-                                    auto list = self->GetDiscoveredGateways();
-                                    Application::GetInstance().Schedule([self, list]() {
-                                        if (self->on_gateways_changed_) {
-                                            self->on_gateways_changed_(list);
-                                        }
-                                    });
-                                }
-                            }
-                            cJSON_Delete(root);
-                        }
+                    if (len <= 0) {
+                        break;
                     }
-                    close(sock);
+                    rx_buf[len] = '\0';
+                    cJSON* root = cJSON_Parse(rx_buf);
+                    if (root) {
+                        auto service = cJSON_GetObjectItem(root, "service");
+                        if (cJSON_IsString(service) && strcmp(service->valuestring, "feishu_passport") == 0) {
+                            struct sockaddr_in* sin = (struct sockaddr_in*)&src_addr;
+                            char ip_str[32];
+                            inet_ntop(AF_INET, &sin->sin_addr, ip_str, sizeof(ip_str));
+
+                            auto port_item = cJSON_GetObjectItem(root, "ws_port");
+                            int port = cJSON_IsNumber(port_item) ? port_item->valueint : DEFAULT_FEISHU_PORT;
+
+                            auto name_item = cJSON_GetObjectItem(root, "name");
+                            std::string gw_name = cJSON_IsString(name_item) ? name_item->valuestring : "飞书控制台";
+
+                            ESP_LOGI(TAG, "Discovered Feishu gateway: %s (%s:%d)", gw_name.c_str(), ip_str, port);
+
+                            // 若当前未连接，且为已配对的记忆网关，自动发起直连
+                            if (!self->connected_ && self->is_paired_ &&
+                                self->gateway_ip_ == ip_str && self->gateway_port_ == port) {
+                                self->gateway_name_ = gw_name;
+                                self->ConnectToGateway(ip_str, port);
+                            }
+
+                            // 记录并更新到候选网关列表中
+                            bool is_new = false;
+                            {
+                                std::lock_guard<std::mutex> lock(self->gateways_mutex_);
+                                bool exists = false;
+                                bool is_current_connected = (self->connected_ && self->gateway_ip_ == ip_str && self->gateway_port_ == port);
+                                for (auto& gw : self->discovered_gateways_) {
+                                    if (gw.ip == ip_str && gw.port == port) {
+                                        gw.name = gw_name;
+                                        gw.is_paired = is_current_connected;
+                                        exists = true;
+                                        break;
+                                    }
+                                }
+                                if (!exists) {
+                                    FeishuGateway new_gw{gw_name, ip_str, port, is_current_connected};
+                                    if (is_current_connected) {
+                                        self->discovered_gateways_.insert(self->discovered_gateways_.begin(), new_gw);
+                                    } else {
+                                        self->discovered_gateways_.push_back(new_gw);
+                                    }
+                                    is_new = true;
+                                }
+                                self->pending_gw_ip_ = ip_str;
+                                self->pending_gw_port_ = port;
+                                self->pending_gw_name_ = gw_name;
+                            }
+
+                            if (is_new && self->on_gateways_changed_) {
+                                auto list = self->GetDiscoveredGateways();
+                                Application::GetInstance().Schedule([self, list]() {
+                                    if (self->on_gateways_changed_) {
+                                        self->on_gateways_changed_(list);
+                                    }
+                                });
+                            }
+                        }
+                        cJSON_Delete(root);
+                    }
                 }
+                close(sock);
             }
-            vTaskDelay(pdMS_TO_TICKS(4000));
+            vTaskDelay(pdMS_TO_TICKS(5000));
         }
     }, "feishu_discovery", 4096, this, 5, &discovery_task_handle_);
 }
@@ -191,6 +197,7 @@ void FeishuProtocol::ConnectToGatewayByIndex(size_t index) {
         }
     }
     if (!ip.empty()) {
+        gateway_name_ = name;
         ESP_LOGI(TAG, "Connecting to selected gateway [%d] %s (%s:%d)", (int)index, name.c_str(), ip.c_str(), port);
         ConnectToGateway(ip, port);
     }
@@ -248,10 +255,18 @@ void FeishuProtocol::SendPairRequest() {
              SystemInfo::GetMacAddress().c_str(), WifiManager::GetInstance().GetIpAddress().c_str());
 }
 
-void FeishuProtocol::TriggerDiscovery() {
-    if (connected_) {
-        return;
+void FeishuProtocol::DisconnectGateway() {
+    if (ping_timer_) {
+        esp_timer_stop(ping_timer_);
     }
+    if (websocket_) {
+        websocket_.reset();
+    }
+    connected_ = false;
+    ESP_LOGI(TAG, "Gateway connection cleanly terminated.");
+}
+
+void FeishuProtocol::TriggerDiscovery() {
     {
         std::lock_guard<std::mutex> lock(gateways_mutex_);
         discovered_gateways_.clear();
@@ -277,7 +292,12 @@ void FeishuProtocol::TriggerDiscovery() {
 
 void FeishuProtocol::ConnectToGateway(const std::string& ip, int port) {
     if (websocket_ && websocket_->IsConnected()) {
-        return;
+        if (gateway_ip_ == ip && gateway_port_ == port) {
+            ESP_LOGI(TAG, "Already connected to gateway %s:%d", ip.c_str(), port);
+            return;
+        }
+        ESP_LOGI(TAG, "Switching gateway: disconnecting existing connection to %s:%d first", gateway_ip_.c_str(), gateway_port_);
+        DisconnectGateway();
     }
 
     gateway_ip_ = ip;
@@ -494,6 +514,9 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 Settings settings("feishu", true);
                 settings.SetString("gw_ip", gateway_ip_);
                 settings.SetInt("gw_port", gateway_port_);
+                if (!gateway_name_.empty()) {
+                    settings.SetString("gw_name", gateway_name_);
+                }
                 settings.SetBool("paired", true);
                 auto token = cJSON_GetObjectItem(root, "token");
                 if (cJSON_IsString(token)) {
@@ -636,9 +659,19 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         });
     } else if (type_str == "handshake_ack") {
         esp_ota_mark_app_valid_cancel_rollback();
+        auto name_item = cJSON_GetObjectItem(root, "name");
+        if (cJSON_IsString(name_item) && name_item->valuestring[0] != '\0') {
+            gateway_name_ = name_item->valuestring;
+            Settings settings("feishu", true);
+            settings.SetString("gw_ip", gateway_ip_);
+            settings.SetInt("gw_port", gateway_port_);
+            settings.SetString("gw_name", gateway_name_);
+            settings.SetBool("paired", true);
+        }
         if (display) {
-            Application::GetInstance().Schedule([display]() {
-                display->SetStatus("飞书控制台就绪");
+            std::string gw_title = gateway_name_.empty() ? "飞书控制台" : gateway_name_;
+            Application::GetInstance().Schedule([display, gw_title]() {
+                display->SetStatus(gw_title.c_str());
                 display->SetEmotion("neutral");
             });
         }

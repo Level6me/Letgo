@@ -39,6 +39,9 @@ public:
     bool SendBargeIn();
     bool IsConnected() const { return connected_; }
     const std::string& GetGatewayIp() const { return gateway_ip_; }
+    int GetGatewayPort() const { return gateway_port_; }
+    const std::string& GetGatewayName() const { return gateway_name_; }
+    void DisconnectGateway();
     void TriggerDiscovery();
     void SendPairRequest();
     void ConnectSelectedGateway();
@@ -60,6 +63,7 @@ private:
     std::unique_ptr<WebSocket> websocket_;
     std::string gateway_ip_;
     int gateway_port_ = 8765;
+    std::string gateway_name_;
     std::string pending_gw_ip_;
     int pending_gw_port_ = 8765;
     std::string pending_gw_name_;

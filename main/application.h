@@ -122,6 +122,8 @@ public:
     void SendFeishuButtonEvent(const std::string& button, const std::string& action);
     bool IsFeishuConnected();
     std::string GetFeishuGatewayIp();
+    int GetFeishuGatewayPort();
+    std::string GetFeishuGatewayName();
     void TriggerFeishuDiscovery();
     bool HasPendingFeishuGateway();
     std::string GetPendingFeishuGatewayName();

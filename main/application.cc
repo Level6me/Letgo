@@ -291,8 +291,13 @@ void Application::Run() {
                 if (feishu_awaiting_ticks_ >= 30) {
                     ESP_LOGW(TAG, "Feishu awaiting reply timed out (30s), resetting to standby");
                     SetFeishuAwaitingReply(false);
-                    SetDeviceState(kDeviceStateIdle);
-                    display->SetStatus(IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
+                    if (IsFeishuConnected()) {
+                        std::string gw_title = GetFeishuGatewayName();
+                        if (gw_title.empty()) gw_title = "飞书控制台";
+                        display->SetStatus(gw_title.c_str());
+                    } else {
+                        display->SetStatus(Lang::Strings::STANDBY);
+                    }
                     display->SetEmotion("neutral");
                     display->ShowNotification("Response timeout\nBack to Standby", 2500);
                 }
@@ -365,7 +370,9 @@ void Application::HandleActivationDoneEvent() {
         auto display = Board::GetInstance().GetDisplay();
         display->ClearActivationCode();
         if (IsFeishuConnected()) {
-            display->SetStatus(Lang::Strings::FEISHU_CONSOLE_READY);
+            std::string gw_title = GetFeishuGatewayName();
+            if (gw_title.empty()) gw_title = "飞书控制台";
+            display->SetStatus(gw_title.c_str());
             display->ShowNotification(Lang::Strings::FEISHU_CONSOLE_CONNECTED, 3000);
             display->SetChatMessage("system", Lang::Strings::FEISHU_HOLD_OK_TALK);
         } else {
@@ -573,7 +580,9 @@ void Application::InitializeProtocol() {
     protocol_->OnConnected([this]() {
         DismissAlert();
         auto display = Board::GetInstance().GetDisplay();
-        display->SetStatus(Lang::Strings::FEISHU_CONSOLE_READY);
+        std::string gw_title = GetFeishuGatewayName();
+        if (gw_title.empty()) gw_title = "飞书控制台";
+        display->SetStatus(gw_title.c_str());
         display->SetEmotion("neutral");
         display->SetChatMessage("system", Lang::Strings::FEISHU_HOLD_OK_TALK);
         if (on_feishu_gateways_changed_) {
@@ -1061,7 +1070,13 @@ void Application::HandleStateChangedEvent() {
                 if (IsFeishuConnected() && feishu_awaiting_reply_) {
                     // Retain Feishu voice sending / awaiting status on display
                 } else {
-                    display->SetStatus(IsFeishuConnected() ? Lang::Strings::FEISHU_CONSOLE_READY : Lang::Strings::STANDBY);
+                    if (IsFeishuConnected()) {
+                        std::string gw_title = GetFeishuGatewayName();
+                        if (gw_title.empty()) gw_title = "飞书控制台";
+                        display->SetStatus(gw_title.c_str());
+                    } else {
+                        display->SetStatus(Lang::Strings::STANDBY);
+                    }
                     display->ClearChatMessages();  // Clear messages first
                     display->SetEmotion(
                         "neutral");  // Then set emotion (wechat mode checks child count)
@@ -1459,6 +1474,22 @@ std::string Application::GetFeishuGatewayIp() {
     if (protocol_) {
         auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
         return feishu->GetGatewayIp();
+    }
+    return "";
+}
+
+int Application::GetFeishuGatewayPort() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        return feishu->GetGatewayPort();
+    }
+    return 8765;
+}
+
+std::string Application::GetFeishuGatewayName() {
+    if (protocol_) {
+        auto feishu = static_cast<FeishuProtocol*>(protocol_.get());
+        return feishu->GetGatewayName();
     }
     return "";
 }
