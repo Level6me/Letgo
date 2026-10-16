@@ -529,6 +529,12 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                     settings.SetString("gw_token", token->valuestring);
                 }
 
+                auto sr_item = cJSON_GetObjectItem(root, "sample_rate");
+                if (cJSON_IsNumber(sr_item) && sr_item->valueint > 0) {
+                    server_sample_rate_ = sr_item->valueint;
+                    ESP_LOGI(TAG, "Negotiated server sample rate from pair_ack: %d Hz", server_sample_rate_);
+                }
+
                 RequestProjectList();
 
                 Application::GetInstance().Schedule([display]() {
@@ -693,6 +699,11 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 display->SetStatus(gw_title.c_str());
                 display->SetEmotion("neutral");
             });
+        }
+        auto sr_item = cJSON_GetObjectItem(root, "sample_rate");
+        if (cJSON_IsNumber(sr_item) && sr_item->valueint > 0) {
+            server_sample_rate_ = sr_item->valueint;
+            ESP_LOGI(TAG, "Negotiated server sample rate from handshake_ack: %d Hz", server_sample_rate_);
         }
         RequestProjectList();
     } else if (type_str == "ai_state") {
