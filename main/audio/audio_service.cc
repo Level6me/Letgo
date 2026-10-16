@@ -374,10 +374,10 @@ void AudioService::AudioOutputTask() {
         // 蓄水至至少 2 帧（约 120ms）或至多等待 80ms 超时，彻底吸收网络抖动消除断流卡顿；
         // 若无网络包在排队（本地单一提示音），则无需等待立即播放。
         if (need_prebuffer_) {
-            constexpr size_t kPrebufferFrames = 2;
+            constexpr size_t kPrebufferFrames = 3;
             bool is_network_stream = (!audio_decode_queue_.empty() || decode_in_flight_);
             if (is_network_stream && audio_playback_queue_.size() < kPrebufferFrames) {
-                audio_queue_cv_.wait_for(lock, std::chrono::milliseconds(80), [this, kPrebufferFrames]() {
+                audio_queue_cv_.wait_for(lock, std::chrono::milliseconds(120), [this, kPrebufferFrames]() {
                     return service_stopped_.load() || audio_playback_queue_.size() >= kPrebufferFrames;
                 });
                 if (service_stopped_.load()) {

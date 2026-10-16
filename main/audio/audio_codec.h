@@ -12,7 +12,7 @@
 
 #include "board.h"
 
-#define AUDIO_CODEC_DMA_DESC_NUM 8
+#define AUDIO_CODEC_DMA_DESC_NUM 10
 #define AUDIO_CODEC_DMA_FRAME_NUM 320
 
 // ESP-IDF 6 removed i2s_port_t and changed i2s_chan_config_t::id to an integer.
