@@ -396,10 +396,6 @@ void AudioService::AudioOutputTask() {
         output_in_flight_ = true;
         AudioDiagnostics::GetInstance().RecordDownlinkPlayed(audio_playback_queue_.size());
 
-        // 检查弹出后队列是否已空（判断是否为流尾或可能断流）
-        bool will_be_empty =
-            audio_playback_queue_.empty() && audio_decode_queue_.empty() && !decode_in_flight_;
-
         audio_queue_cv_.notify_all();
         lock.unlock();
 
@@ -414,36 +410,7 @@ void AudioService::AudioOutputTask() {
         }
 
         if (!task.pcm.empty()) {
-            const size_t sample_rate = codec_->output_sample_rate();
-
-            // 2. 软淡入（Soft Fade-in）：流起始前 3ms 线性平滑渐入，消除 PA 使能电容充电与首帧电平跳变爆音
-            if (is_stream_first_chunk_) {
-                is_stream_first_chunk_ = false;
-                size_t fade_len = std::min(task.pcm.size(), (size_t)(sample_rate * 3 / 1000));
-                if (fade_len > 0) {
-                    for (size_t i = 0; i < fade_len; i++) {
-                        task.pcm[i] = static_cast<int16_t>(
-                            (static_cast<int32_t>(task.pcm[i]) * static_cast<int32_t>(i)) /
-                            static_cast<int32_t>(fade_len));
-                    }
-                }
-            }
-
-            // 3. 软淡出（Soft Fade-out）：流结尾末 3ms 平滑渐出归零，消除 DMA 欠载补零直角截断爆音
-            if (will_be_empty) {
-                size_t fade_len = std::min(task.pcm.size(), (size_t)(sample_rate * 3 / 1000));
-                if (fade_len > 0) {
-                    size_t start = task.pcm.size() - fade_len;
-                    for (size_t i = 0; i < fade_len; i++) {
-                        task.pcm[start + i] = static_cast<int16_t>(
-                            (static_cast<int32_t>(task.pcm[start + i]) *
-                             static_cast<int32_t>(fade_len - i)) /
-                            static_cast<int32_t>(fade_len));
-                    }
-                }
-            }
-
-            // 4. 软限幅器（Soft Limiter）：消除大音量数字削顶破音（Anti-clipping）
+            // 软限幅器（Soft Limiter）：消除大音量数字削顶破音（Anti-clipping）
             constexpr int32_t kLimitThreshold = 28000;
             constexpr int32_t kLimitRange = 32767 - kLimitThreshold;
             for (size_t i = 0; i < task.pcm.size(); i++) {
@@ -493,20 +460,25 @@ void AudioService::AudioOutputTask() {
         output_in_flight_ = false;
 
         // 7. 防虚假排空与断流保护：
-        // 若队列已空，标记下次起播重新触发预缓冲，并延迟确认是否真正排空（避免两包之间微小抖动误杀播放流）
+        // 只有当真正确认排空时才标记 need_prebuffer_；在连续音频推流过程中绝不因单个包瞬时空而置位，
+        // 彻底杜绝每帧之间被人为强制等待 80ms 导致的严重卡顿。
         if (audio_playback_queue_.empty()) {
-            need_prebuffer_ = true;
             if (!audio_decode_queue_.empty() || decode_in_flight_) {
                 AudioDiagnostics::GetInstance().RecordDownlinkUnderrun();
             }
             if (IsPlaybackDrainedLocked()) {
-                audio_queue_cv_.wait_for(lock, std::chrono::milliseconds(60), [this]() {
+                audio_queue_cv_.wait_for(lock, std::chrono::milliseconds(200), [this]() {
                     return service_stopped_.load() || !IsPlaybackDrainedLocked();
                 });
                 notify_drained = MarkPlaybackDrainedLocked();
             }
         } else {
             notify_drained = MarkPlaybackDrainedLocked();
+        }
+
+        if (notify_drained) {
+            need_prebuffer_ = true;
+            is_stream_first_chunk_ = true;
         }
 
         audio_queue_cv_.notify_all();
