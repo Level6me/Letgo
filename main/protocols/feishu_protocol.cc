@@ -3,6 +3,7 @@
 #include "board.h"
 #include "settings.h"
 #include "system_info.h"
+#include "audio_diagnostics.h"
 #include "display.h"
 #include <assets/lang_config.h>
 #include <wifi_manager.h>
@@ -408,16 +409,19 @@ bool FeishuProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
         return false;
     }
     // ESP32-C3 单核 LwIP 套接字发送缓冲区较小，在突发网络或瞬时满负荷时进行微小退避重试，防止一刀切失败
+    bool sent = false;
     for (int retry = 0; retry < 3; retry++) {
         if (websocket_->Send((const char*)packet->payload.data(), packet->payload.size(), true)) {
-            return true;
+            sent = true;
+            break;
         }
         if (!websocket_->IsConnected()) {
-            return false;
+            break;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    return false;
+    AudioDiagnostics::GetInstance().RecordUplinkPacketSent(sent);
+    return sent;
 }
 
 bool FeishuProtocol::OpenAudioChannel() {
@@ -442,6 +446,7 @@ bool FeishuProtocol::IsAudioChannelOpened() const {
 
 void FeishuProtocol::SendStartListening(ListeningMode mode) {
     (void)mode;
+    AudioDiagnostics::GetInstance().StartUplinkSession();
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "type", "voice_start");
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
@@ -453,6 +458,7 @@ void FeishuProtocol::SendStartListening(ListeningMode mode) {
 }
 
 void FeishuProtocol::SendStopListening() {
+    AudioDiagnostics::GetInstance().EndUplinkSession();
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "type", "voice_end");
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
@@ -577,6 +583,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
             }
         });
     } else if (type_str == "voice_reply_start") {
+        AudioDiagnostics::GetInstance().StartDownlinkSession();
         Application::GetInstance().Schedule([display]() {
             Application::GetInstance().SetFeishuAwaitingReply(false);
             Application::GetInstance().SetDeviceState(kDeviceStateSpeaking);
@@ -594,6 +601,18 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 display->SetChatMessage("system", Lang::Strings::FEISHU_HOLD_OK_TALK);
             }
         });
+    } else if (type_str == "get_debug_log" || type_str == "query_audio_debug") {
+        cJSON* rep = AudioDiagnostics::GetInstance().CreateReportCJson(5, true);
+        cJSON* resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type", "audio_debug_response");
+        cJSON_AddStringToObject(resp, "mac", SystemInfo::GetMacAddress().c_str());
+        cJSON_AddItemToObject(resp, "diagnostics", rep);
+        char* json_str = cJSON_PrintUnformatted(resp);
+        if (json_str) {
+            SendText(json_str);
+            cJSON_free(json_str);
+        }
+        cJSON_Delete(resp);
     } else if (type_str == "dashboard_sync") {
         auto project = cJSON_GetObjectItem(root, "project");
         auto status = cJSON_GetObjectItem(root, "status");

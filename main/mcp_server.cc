@@ -13,6 +13,7 @@
 
 #include "application.h"
 #include "board.h"
+#include "audio_diagnostics.h"
 #include "display.h"
 #include "lvgl_image.h"
 #include "lvgl_theme.h"
@@ -46,6 +47,22 @@ void McpServer::AddCommonTools() {
             "audio speaker, etc.)",
             PropertyList(), [&board](const PropertyList& properties) -> ReturnValue {
                 return board.GetDeviceStatusJson();
+            });
+
+    AddTool("self.get_audio_debug_stats",
+            "Provides real-time audio quality diagnostics and fluency analysis of voice sending (uplink) and receiving (downlink).\n"
+            "Reports jitter, underrun/stutter count, packet intervals, dropped frames, decode times, and system health.\n"
+            "Args:\n"
+            "  `count`: Number of recent sessions to retrieve (default: 5).\n"
+            "  `verbose`: Whether to include detailed per-frame timing statistics (default: false).\n"
+            "Return:\n"
+            "  A JSON object that provides the audio diagnostics and telemetry.",
+            PropertyList({Property("count", kPropertyTypeInteger, 5),
+                          Property("verbose", kPropertyTypeBoolean, false)}),
+            [](const PropertyList& properties) -> ReturnValue {
+                int count = properties["count"].value<int>();
+                bool verbose = properties["verbose"].value<bool>();
+                return AudioDiagnostics::GetInstance().DumpJson(count, verbose);
             });
 
     AddTool("self.audio_speaker.set_volume",

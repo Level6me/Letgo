@@ -1,5 +1,6 @@
 #include "audio_service.h"
 #include "audio_spectrum.h"
+#include "audio_diagnostics.h"
 #include <esp_log.h>
 #include <cstring>
 #include <cmath>
@@ -198,8 +199,11 @@ void AudioService::Stop() {
         notify_drained = MarkPlaybackDrainedLocked();
         audio_queue_cv_.notify_all();
     }
-    if (notify_drained && callbacks_.on_playback_drained) {
-        callbacks_.on_playback_drained();
+    if (notify_drained) {
+        AudioDiagnostics::GetInstance().EndDownlinkSession();
+        if (callbacks_.on_playback_drained) {
+            callbacks_.on_playback_drained();
+        }
     }
 }
 
@@ -390,6 +394,7 @@ void AudioService::AudioOutputTask() {
         auto task = std::move(audio_playback_queue_.front());
         audio_playback_queue_.pop_front();
         output_in_flight_ = true;
+        AudioDiagnostics::GetInstance().RecordDownlinkPlayed(audio_playback_queue_.size());
 
         // 检查弹出后队列是否已空（判断是否为流尾或可能断流）
         bool will_be_empty =
@@ -491,6 +496,9 @@ void AudioService::AudioOutputTask() {
         // 若队列已空，标记下次起播重新触发预缓冲，并延迟确认是否真正排空（避免两包之间微小抖动误杀播放流）
         if (audio_playback_queue_.empty()) {
             need_prebuffer_ = true;
+            if (!audio_decode_queue_.empty() || decode_in_flight_) {
+                AudioDiagnostics::GetInstance().RecordDownlinkUnderrun();
+            }
             if (IsPlaybackDrainedLocked()) {
                 audio_queue_cv_.wait_for(lock, std::chrono::milliseconds(60), [this]() {
                     return service_stopped_.load() || !IsPlaybackDrainedLocked();
@@ -504,8 +512,11 @@ void AudioService::AudioOutputTask() {
         audio_queue_cv_.notify_all();
         lock.unlock();
 
-        if (notify_drained && callbacks_.on_playback_drained) {
-            callbacks_.on_playback_drained();
+        if (notify_drained) {
+            AudioDiagnostics::GetInstance().EndDownlinkSession();
+            if (callbacks_.on_playback_drained) {
+                callbacks_.on_playback_drained();
+            }
         }
     }
 
@@ -556,9 +567,11 @@ void AudioService::OpusCodecTask() {
                     .decoded_size = 0,
                 };
                 esp_audio_dec_info_t dec_info = {};
+                int64_t dec_start_us = esp_timer_get_time();
                 std::unique_lock<std::mutex> decoder_lock(decoder_mutex_);
                 auto ret = esp_opus_dec_decode(opus_decoder_, &raw, &out_frame, &dec_info);
                 decoder_lock.unlock();
+                AudioDiagnostics::GetInstance().RecordDownlinkDecoded(esp_timer_get_time() - dec_start_us);
                 if (ret == ESP_AUDIO_ERR_OK) {
                     task.pcm.resize(out_frame.decoded_size / sizeof(int16_t));
                     if (decoder_sample_rate_ != codec_->output_sample_rate() &&
@@ -708,6 +721,9 @@ void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
 }
 
 void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm) {
+    if (type == kAudioTaskTypeEncodeToSendQueue) {
+        AudioDiagnostics::GetInstance().RecordUplinkFrame(pcm.size(), input_energy_rms_.load(std::memory_order_relaxed));
+    }
     AudioTask task;
     task.type = type;
     task.pcm = std::move(pcm);
@@ -730,6 +746,9 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
         if (audio_encode_queue_.size() >= MAX_ENCODE_TASKS_IN_QUEUE) {
             audio_encode_queue_.pop_front();
             dropped_total = ++debug_statistics_.encode_drop_count;
+            if (type == kAudioTaskTypeEncodeToSendQueue) {
+                AudioDiagnostics::GetInstance().RecordUplinkDrop(1);
+            }
         }
         audio_encode_queue_.push_back(std::move(task));
         audio_queue_cv_.notify_all();
@@ -764,6 +783,7 @@ bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> pa
         return false;
     }
     playback_drained_notified_ = false;
+    AudioDiagnostics::GetInstance().RecordDownlinkPacketReceived(packet ? packet->payload.size() : 0);
     audio_decode_queue_.push_back(std::move(packet));
     audio_queue_cv_.notify_all();
     return true;
@@ -786,6 +806,7 @@ bool AudioService::PushPcmToPlaybackQueue(std::vector<int16_t>&& pcm, bool wait)
         return false;
     }
     playback_drained_notified_ = false;
+    AudioDiagnostics::GetInstance().RecordDownlinkPacketReceived(pcm.size() * sizeof(int16_t));
     AudioTask task;
     task.type = kAudioTaskTypeDecodeToPlaybackQueue;
     task.pcm = std::move(pcm);
