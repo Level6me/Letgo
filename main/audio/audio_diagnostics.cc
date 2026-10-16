@@ -109,7 +109,9 @@ void AudioDiagnostics::StartDownlinkSession() {
 }
 
 void AudioDiagnostics::RecordDownlinkPacketReceived(size_t bytes) {
-    if (!downlink_active_) return;
+    if (!downlink_active_) {
+        StartDownlinkSession();
+    }
     int64_t now = esp_timer_get_time();
     downlink_recv_packets_++;
 

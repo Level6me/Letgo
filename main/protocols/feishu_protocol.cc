@@ -320,11 +320,22 @@ void FeishuProtocol::ConnectToGateway(const std::string& ip, int port) {
         last_incoming_time_ = std::chrono::steady_clock::now();
         if (binary) {
             if (len >= 2) {
-                // 收到飞书服务端下发的 16kHz 16bit 单声道 PCM 流，直接塞入播放队列
-                size_t sample_count = len / sizeof(int16_t);
-                const int16_t* pcm_samples = reinterpret_cast<const int16_t*>(data);
-                std::vector<int16_t> pcm_vec(pcm_samples, pcm_samples + sample_count);
-                Application::GetInstance().GetAudioService().PushPcmToPlaybackQueue(std::move(pcm_vec));
+                if (len != 1920) {
+                    // 标准 Opus 压缩音频帧（单帧 60ms, ~80-250 字节）：送入原生 Opus 解码队列
+                    auto packet = std::make_unique<AudioStreamPacket>();
+                    packet->sample_rate = 16000;
+                    packet->frame_duration = 60;
+                    packet->timestamp = 0;
+                    packet->payload.assign(reinterpret_cast<const uint8_t*>(data),
+                                          reinterpret_cast<const uint8_t*>(data) + len);
+                    Application::GetInstance().GetAudioService().PushPacketToDecodeQueue(std::move(packet));
+                } else {
+                    // 兼容旧版 1920 字节裸 PCM 流
+                    size_t sample_count = len / sizeof(int16_t);
+                    const int16_t* pcm_samples = reinterpret_cast<const int16_t*>(data);
+                    std::vector<int16_t> pcm_vec(pcm_samples, pcm_samples + sample_count);
+                    Application::GetInstance().GetAudioService().PushPcmToPlaybackQueue(std::move(pcm_vec));
+                }
             }
         } else {
             HandleServerJson(data, len);
