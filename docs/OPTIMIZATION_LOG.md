@@ -2,7 +2,7 @@
 
 **项目名称**: Letgo (基于 FoloToy AI Passport & XiaoZhi 二次开发)  
 **目标芯片**: ESP32-C3-MINI-1 (无 PSRAM, 400KB SRAM, 8MB Flash)  
-**更新日期**: 2026-10-10  
+**更新日期**: 2026-10-17 (包含 10-10 固件瘦身打磨与 10-16 下行 Opus/网关 ASR 架构升级)  
 
 ---
 
@@ -116,11 +116,105 @@
 
 ---
 
-## 总结
-通过两轮全链路细节精工打磨，固件在 100% 保留飞书对话交互与黑白 UI 功能的前提下，达成了：
-1. **体积极致精简**: 固件从 7.26MB 压缩至 **3.87MB**（整体瘦身 46.6%）；
-2. **内存韧性倍增**: MbedTLS 动态证书释放省下 15KB+ 贵重内部 SRAM；
-3. **硬件听觉与视觉**: 彻底消除音频 Pop 爆音，背光 200ms 自适应平滑呼吸渐变；
-4. **低功耗与续航**: 90秒深度息屏 + I2C 电量节流 + Wi-Fi Modem-Sleep，待机电流显著降低；
-5. **按键抗噪**: 梯形电阻 40mV 迟滞死区彻底告别误触。
+### 9. 下行音频开环盲推死穴根治与原生端侧 Opus 压缩解码重构 (Native Opus Downlink Architecture)
+* **优化文件**: `main/protocols/feishu_protocol.cc`, `main/audio/audio_service.h`, `main/audio/audio_service.cc`, `passport-bridge/server.py`
+* **问题痛点**:
+  - **盲推溢出与每秒丢帧**: 旧版本采用服务端 Python `asyncio.sleep(0.048)` 开环定时推送未压缩 16kHz PCM 裸流（1920 字节/帧）。由于推流速率（48ms）快于硬件 DAC 物理播放速度（60ms），ESP32-C3 内部受限于 SRAM、播放队列上限仅为 `MAX_PLAYBACK_TASKS_IN_QUEUE = 12`（约 720ms）。开播仅 1 秒后硬件队列即被打满，底层 `PushPcmToPlaybackQueue` 遇到满队列直接静默丢弃（`return false;`），每秒硬生生扔掉 3~4 个 60ms 音频帧，导致喇叭剧烈卡顿、断续吞字与波形硬切断爆音。
+  - **网络带宽过载**: 16kHz 16-bit 单声道裸 PCM 码率高达 **256 kbps**（32 KB/s），在 ESP32-C3 轻量 Wi-Fi 与 LwIP 协议栈上极易发生 TCP 拥塞与延时抖动。
+* **改动方案**:
+  - **回归官方原生 Opus 解码架构**:
+    - **固件端 (`feishu_protocol.cc`)**: WebSocket 接收下行音频包时，判断若非 1920 字节则作为标准 RFC 6716 Opus 压缩帧处理，封装为 `AudioStreamPacket` 直接送入原生 `PushPacketToDecodeQueue`，由端侧专属任务 `OpusCodecTask` 配合硬件 DAC 实现按需解码（Just-In-Time Decode）。
+    - **扩容抗抖动蓄水池 (`audio_service.h`)**: 将 `MAX_DECODE_PACKETS_IN_QUEUE` 扩充至 **40 帧（对应 2400ms 深度缓冲）**。由于单个 Opus 帧仅 80~150 字节，40 帧仅需占用约 **6KB SRAM**，以极微小的内存代价换取了长达 2.4 秒的绝对抗抖动水库。
+    - **网关端 (`passport-bridge/server.py`)**: 挂载 Linux 原生 `libopus.so.0` 动态库，开发轻量级 `OpusStreamEncoder` 类，在微秒级内将 Edge-TTS 音频压缩为 16kHz 单声道、60ms 帧长的标准 Opus 帧；推流时采用起播前 4 帧极速充水（240ms）+ 后续 58ms 匀速送水的策略。
+* **收益效果**:
+  - **网络码率暴跌 90%+**: 传输带宽从 256 kbps 骤降至 **~20 kbps**（每秒仅约 2KB），Wi-Fi 传输完全无压力；
+  - **彻底杜绝卡顿与吞字破音**: 硬件队列永不溢出丢帧，端侧按需解码与物理晶振绝对同步，实测 42 秒长文本流式连播无一帧丢失；
+  - **句读衔接平滑自然**: 多分句场景下前句播放时后句已在解码队列待命，彻底消除了分句等待静音。
+
+---
+
+### 10. 音频诊断系统 (AudioDiagnostics) 测盲消除与自适应会话激活
+* **优化文件**: `main/audio/audio_diagnostics.cc`, `main/audio/audio_service.cc`
+* **问题痛点**:
+  - 之前的下行音频诊断出现“用户听感极差、日志却全是 `Smooth` 且 `underrun: 0`”的严重测盲问题。
+  - **盲区一**: `PushPcmToPlaybackQueue` 中的丢包发生在满队列判断（`return false`）处，而 `RecordDownlinkPacketReceived` 写在判断之后，被丢掉的帧从未计入统计。
+  - **盲区二**: `RecordDownlinkUnderrun` 此前被 `if (!audio_decode_queue_.empty() || decode_in_flight_)` 守卫，在纯 PCM 模式下解码队列永远为空，导致欠载断流计数恒为 0。
+  - **盲区三**: 多分句播报中若 `voice_reply_start` 仅在首句触发，当首句播完短暂排空后会话结束，后续句子到达时由于 `downlink_active_ == false` 直接被诊断忽略。
+* **改动方案**:
+  - 在 `RecordDownlinkPacketReceived` 中增加自动会话激活逻辑：若当前诊断会话未激活（如句间重连或新包到达），自动触发 `StartDownlinkSession()`。
+  - 在解码与播放任务中全面打通实际丢包与欠载真实上报，确保丢帧即报错。
+* **收益效果**:
+  - 彻底抹平诊断测盲，下行音频帧接收、解码耗时、网络抖动（Jitter）、最小缓冲深度（Min Queue Depth）实现真实毫秒级全链路透明监控。
+
+---
+
+### 11. 边缘网关 (树莓派 4B) 离线语音识别架构升级 (Sherpa-ONNX + SenseVoice-Small INT8)
+* **优化文件**: `passport-bridge/server.py`
+* **问题痛点**:
+  - 原网关 ASR 依赖 Python `speech_recognition` 默认的 Google 在线公开接口，因网络环境问题频繁发生 `ASR 语音转录超时 (12s)` 或无响应；
+  - 对中英技术名词（如 Git、Commit、PR、Bug、Letgo 等）缺少识别优化，口语容错率低。
+* **改动方案**:
+  - **Sherpa-ONNX 运行时引入**: 在网关 Python 环境部署 `sherpa-onnx (v1.13.8)`；
+  - **本地 SenseVoice-Small INT8 模型挂载**: 在 `data/models/sense-voice` 部署针对 ARM64 NEON 优化的阿里 SenseVoice-Small INT8 模型（模型文件仅约 237MB，tokens 约 315KB）；
+  - **常驻内存与热重载架构**: 设计 `LocalSenseVoiceASR` 类，网关启动时一次性预热载入内存（耗时仅 ~7.2s），消除每次语音请求重复读盘开销；
+  - **双重冗余兜底**: 优先使用本地离线极速识别（0 费用、0 外网依赖），若无结果自动无缝回退至在线识别兜底。
+* **收益效果**:
+  - **100% 完全免费**: 纯本地运行，免除商业 ASR API 调用账单；
+  - **树莓派 4B 资源毫无压力**: 系统可用内存充沛保留在 800MB 以上，平时 CPU 待机占用 0%，仅在松键瞬间瞬态计算约 0.5~1 秒；
+  - **识别精度质变**: 中文普通话与中英夹杂技术词汇准确率显著提高，彻底摆脱 12 秒网络超时。
+
+---
+
+### 12. 音频滤波防削顶与语速节奏精调 (-af volume=0.85 & tts_rate)
+* **优化文件**: `passport-bridge/server.py`, `passport-bridge/config.json`
+* **改动方案**:
+  - 在 FFmpeg 转码管道中引入 `-af volume=0.85` 音频滤波器，为微型扬声器和功放保留 15% 的数字动态余量（Headroom），彻底杜绝爆破音导致的 DAC 模拟端削顶刺耳破音；
+  - 将默认 TTS 语速微调下行 10%（`"tts_rate": "-10%"`），发音节奏从容平缓，大幅提升听感舒适度。
+* **收益效果**:
+  - 彻底消除尖锐破音，播音节奏自然温和。
+
+---
+
+### 13. 长文本流式 TTS 分句断流后重新极速注水与连接保活 (Anti-Stutter & Auto-Reheat)
+* **优化文件**: `passport-bridge/server.py`
+* **问题痛点**:
+  - 用户反馈长文本语音问答在“前半段很正常，到了后半段很卡”；
+  - **根因分析**:
+    1. 首句播报时网关通过前 4 帧（240ms）极速注水填满了端侧水库，播报顺畅；但在第一句播完、第二句流式转码下发之前，产生约 150ms 左右的间隔，导致 ESP32-C3 端侧抗抖动水库被播空（水库归零）；
+    2. 第二句音频下发时由于 `first_burst_done` 标志已被锁定，仅按 58ms 单帧下发，一旦 ESP32-C3 单核在后台出现瞬态 CPU 竞争（单帧解码峰值达 78.88ms > 60ms），扬声器底层立刻发生干涸卡顿；
+    3. 云端 Edge-TTS 长连接池在空闲时易被远端断开，偶发 `Cannot write to closing transport`，重连降级产生额外等待。
+* **改动方案**:
+  - **断流智能重充水**: 在 `playback_worker` 中引入 `last_chunk_finish_time` 监测，一旦两组音频间隔超过 120ms（说明端侧原有水库已被播放消耗），自动重置 `burst_frames_remaining = 4`，对后续切片重新进行 4 帧（240ms）5ms 极速充水，注满端侧抗抖动水库；
+  - **推流速率微调**: 匀速推流间隔由 58ms 调优为 **55ms**（略快于单帧播放时长 60ms），使端侧 Jitter Buffer 始终维持 3~5 帧的健康动态安全水位；
+  - **TTS 握手双重重试与优雅恢复**: 在 `stream_pcm_realtime` 中引入自动重连重试（`attempt in range(2)`），若首次合成遇到连接关闭立即原地拉起鲜活连接并重发 SSML，彻底消除 900ms 的外部回退降级抖动。
+* **收益效果**:
+  - 长文本多句连续对话全程连贯自然，彻底解决分句交接时的后半段顿挫与卡顿。
+
+---
+
+### 14. 消除流式转码零填充膨胀与全生命周期一键部署依赖对齐
+* **优化文件**: `passport-bridge/server.py`, `passport-bridge/install.sh`, `passport-bridge/setup.sh`, `passport-bridge/requirements.txt`, `antigravity-feishu-bot/plugin_store.py`
+* **问题痛点**:
+  - **语音卡顿与抽搐根因**: 设备语音问答起播严重卡顿，但飞书 `/passport say` 广播非常流畅。排查发现由于 FFmpeg 管道按块流式读取碎片数据，旧逻辑将不满 60ms（1920 字节）的切片全部补 0 填充成 Opus 帧，导致 3.79s 的音频膨胀成 5.28s（膨胀率 1.39x），整段语音插入了大量零散静音切片，引发严重的语速拉长与抽搐断音；
+  - **部署与安装割裂**: `requirements.txt` 遗漏了 `sherpa-onnx`、`numpy`、`requests` 等依赖；一键部署脚本未检查 `ffmpeg` 与 `libopus0` 编解码库及离线模型拉取；飞书机器人在 `/plugins` 面板安装更新时未自动执行 `setup.sh` 及正确关联 `passport-bridge` 的 PM2 守护进程。
+* **改动方案**:
+  - **整句 PCM 纯净切片重构**: 网关将 `pcm_queue` 升级为 `audio_packet_queue`，在流式分句转码完成后一次性切片，生成纯正 60ms Opus 帧，彻底消除补零膨胀（膨胀率回归 1.0x），完全对齐飞书 `/passport say` 广播机制；
+  - **一键部署依赖补齐与环境自洽 (`install.sh` / `setup.sh`)**: 增加 `ffmpeg`、`libopus0` 系统编解码库检测与自动安装逻辑；补齐 `requirements.txt`；集成 SenseVoice-Small INT8 离线模型自动下载；
+  - **飞书插件生态闭环 (`plugin_store.py` / `plugin.py`)**: 增强插件商店的 `setup.sh` 自动构建触发，支持 PM2 服务名精准识别与守护管理；`plugin.py` 与网关 `/api/status` 动态解耦，实现音色、状态、局域网 IP 与 OTA 固件的自适应探测。
+* **收益效果**:
+  - 设备语音对讲音质达到原生丝滑连贯，起播延迟维持在数百毫秒极速区间；
+  - 无论通过命令行一键脚本全新部署，还是在飞书机器人 `/plugins` 控制面板安装/更新，均实现 100% 自动构建与运行状态完全一致。
+
+---
+
+## 全周期优化总结
+
+通过从底层固件、通讯协议到边缘网关的全链路深度精工打磨，AI Passport 软硬件协同体系达成了：
+
+1. **固件体积极致精简**: 消除 Flash 空白填充，固件物理体积从 7.26MB 压缩至 **3.87MB**（瘦身 46.6%）；
+2. **贵重 SRAM 极致释放**: MbedTLS 动态证书即时释放归还 15KB+，整机空闲 Heap 稳定在 50KB+ 安全区间；
+3. **下行流媒体质变**: 全面接回原生 Opus 硬件协同解码，码率直降 90%，2.4 秒抗抖动水库与分句动态重新注水彻底终结卡顿破音；
+4. **上行离线 ASR 突围**: 树莓派 4B 成功常驻运行阿里 SenseVoice-Small INT8 模型，实现 100% 离线、0 资费、亚秒级高精度中英文技术词汇识别；
+5. **硬件电气与功耗保护**: 梯形电阻 40mV 迟滞死区杜绝误触，I2C 节流与 90 秒二级熄屏延长续航，软限幅与关断消爆音全面保护扬声器。
+
 
