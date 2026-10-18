@@ -81,6 +81,7 @@ jobs:
       - name: Build current variant
         shell: bash
         run: |
+          sed -i "s/set(PROJECT_VER .*/set(PROJECT_VER \"fw-${GITHUB_RUN_ID}\")/" CMakeLists.txt
           source $IDF_PATH/export.sh
           python scripts/build.py ${{ matrix.board }} --name ${{ matrix.name }}
 
@@ -88,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
-          name: xiaozhi_${{ matrix.full_name }}_${{ github.sha }}
+          name: passport_${{ matrix.full_name }}_${{ github.sha }}
           path: build/merged-binary.bin
           if-no-files-found: warn
 

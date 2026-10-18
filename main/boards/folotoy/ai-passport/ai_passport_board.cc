@@ -950,22 +950,22 @@ public:
 
     void SelectAndConnectGateway(int index) {
         selected_gateway_index_ = index;
-        if (gateway_hide_timer_) {
-            esp_timer_stop(gateway_hide_timer_);
-        }
         if (index >= 0 && index < (int)cached_gateways_.size()) {
-            ShowGatewayConnecting(cached_gateways_[index].name);
+            bool paired = cached_gateways_[index].is_paired;
+            ShowGatewayConnecting(cached_gateways_[index].name, paired);
         }
+        ResetGatewayHideTimer();
         Application::GetInstance().Schedule([this, index]() {
             auto& app = Application::GetInstance();
             app.ConnectFeishuGatewayByIndex(index);
         });
     }
 
-    void ShowGatewayConnecting(const std::string& name) {
+    void ShowGatewayConnecting(const std::string& name, bool is_paired = false) {
         DisplayLockGuard lock(this);
         if (gateway_sub_label_) {
-            std::string text = "正在连接: " + name + "\n请在飞书端点击确认";
+            std::string text = is_paired ? ("正在连接: " + name + "...")
+                                         : ("正在连接: " + name + "\n请在飞书端点击确认");
             lv_label_set_text(gateway_sub_label_, text.c_str());
         }
     }
@@ -2589,6 +2589,9 @@ public:
 
         // 监听飞书服务端返回的项目列表与当前活跃项目
         Application::GetInstance().SetOnFeishuProjectsReceived([this](const std::vector<std::string>& projects, const std::string& current) {
+            if (display_) {
+                display_->HideGatewayList();
+            }
             if (!projects.empty()) {
                 last_projects_ = projects;
             }

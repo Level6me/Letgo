@@ -49,7 +49,7 @@ def main():
     # 2. 上传二进制资产
     assets_to_upload = [("FoloToy-AI-Passport-full.bin", bin_path)]
 
-    for ota_name in ["build/xiaozhi.bin", "build/xiao_zhi.bin"]:
+    for ota_name in ["build/ai-passport.bin", "build/xiaozhi.bin", "build/xiao_zhi.bin"]:
         if os.path.exists(ota_name):
             assets_to_upload.append(("FoloToy-AI-Passport-ota.bin", ota_name))
             break

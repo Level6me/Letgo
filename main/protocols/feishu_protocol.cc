@@ -272,6 +272,21 @@ void FeishuProtocol::SendPairRequest() {
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
     cJSON_AddStringToObject(root, "ip", WifiManager::GetInstance().GetIpAddress().c_str());
     cJSON_AddStringToObject(root, "device_name", "FoloToy AI Passport");
+    cJSON_AddStringToObject(root, "board", "ai-passport");
+
+    auto app_desc = esp_app_get_description();
+    if (app_desc) {
+        cJSON_AddStringToObject(root, "version", app_desc->version);
+        cJSON_AddStringToObject(root, "compile_date", app_desc->date);
+        cJSON_AddStringToObject(root, "compile_time", app_desc->time);
+        cJSON_AddStringToObject(root, "project", app_desc->project_name);
+    }
+
+    Settings settings("feishu", false);
+    std::string fw_tag = settings.GetString("fw_tag");
+    if (!fw_tag.empty()) {
+        cJSON_AddStringToObject(root, "firmware_tag", fw_tag.c_str());
+    }
 
     char* json_str = cJSON_PrintUnformatted(root);
     SendText(json_str);
