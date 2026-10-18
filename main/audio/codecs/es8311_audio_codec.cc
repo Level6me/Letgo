@@ -180,6 +180,14 @@ void Es8311AudioCodec::SetOutputVolume(int volume) {
     AudioCodec::SetOutputVolume(volume);
 }
 
+void Es8311AudioCodec::SetInputGain(float gain) {
+    std::lock_guard<std::mutex> lock(data_if_mutex_);
+    if (dev_ != nullptr) {
+        ESP_ERROR_CHECK(esp_codec_dev_set_in_gain(dev_, gain));
+    }
+    AudioCodec::SetInputGain(gain);
+}
+
 void Es8311AudioCodec::EnableInput(bool enable) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
     if (codec_if_ == nullptr) {

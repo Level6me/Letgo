@@ -80,15 +80,15 @@ void FeishuProtocol::StartDiscovery() {
         auto self = static_cast<FeishuProtocol*>(arg);
         char rx_buf[512];
         const char* probe = "DISCOVER_FEISHU_PASSPORT";
+        int disconnect_retry_count = 0;
 
         while (true) {
-            // 每 5 秒广播探测一次局域网内的所有可用网关实例
             int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
             if (sock >= 0) {
                 int broadcast = 1;
                 setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
 
-                struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
+                struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
                 setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
                 struct sockaddr_in dest_addr;
@@ -172,7 +172,32 @@ void FeishuProtocol::StartDiscovery() {
                 }
                 close(sock);
             }
-            vTaskDelay(pdMS_TO_TICKS(5000));
+
+            // 平滑退避与 Wi-Fi 动态节能等待：
+            // 1. 若当前已连接网关：网络拓扑与心跳稳定，避免高频广播浪费射频功率，长休眠 60 秒（支持任务通知立即唤醒）；
+            // 2. 若处于未连接重试态：实施平滑退避（3s -> 5s -> 8s -> 12s -> 15s 上限），减少信号盲区时的无谓空耗；
+            // 3. 任何外部事件（如断开连接、按键触发搜索）通过 xTaskNotifyGive 即可实现 0 延迟即时唤醒！
+            if (self->connected_) {
+                disconnect_retry_count = 0;
+                uint32_t notify_val = 0;
+                xTaskNotifyWait(0, ULONG_MAX, &notify_val, pdMS_TO_TICKS(60000));
+            } else {
+                int delay_ms = 3000;
+                if (disconnect_retry_count == 1) {
+                    delay_ms = 5000;
+                } else if (disconnect_retry_count == 2) {
+                    delay_ms = 8000;
+                } else if (disconnect_retry_count == 3) {
+                    delay_ms = 12000;
+                } else if (disconnect_retry_count >= 4) {
+                    delay_ms = 15000;
+                }
+                uint32_t notify_val = 0;
+                xTaskNotifyWait(0, ULONG_MAX, &notify_val, pdMS_TO_TICKS(delay_ms));
+                if (disconnect_retry_count < 10) {
+                    disconnect_retry_count++;
+                }
+            }
         }
     }, "feishu_discovery", 4096, this, 5, &discovery_task_handle_);
 }
@@ -277,17 +302,21 @@ void FeishuProtocol::TriggerDiscovery() {
         on_gateways_changed_({});
     }
     ESP_LOGI(TAG, "Triggering active UDP gateway discovery probe...");
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (sock >= 0) {
-        int broadcast = 1;
-        setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
-        struct sockaddr_in dest_addr;
-        dest_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-        dest_addr.sin_family = AF_INET;
-        dest_addr.sin_port = htons(DEFAULT_FEISHU_PORT);
-        const char* probe = "DISCOVER_FEISHU_PASSPORT";
-        sendto(sock, probe, strlen(probe), 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
-        close(sock);
+    if (discovery_task_handle_ != nullptr) {
+        xTaskNotifyGive(discovery_task_handle_);
+    } else {
+        int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+        if (sock >= 0) {
+            int broadcast = 1;
+            setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+            struct sockaddr_in dest_addr;
+            dest_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+            dest_addr.sin_family = AF_INET;
+            dest_addr.sin_port = htons(DEFAULT_FEISHU_PORT);
+            const char* probe = "DISCOVER_FEISHU_PASSPORT";
+            sendto(sock, probe, strlen(probe), 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+            close(sock);
+        }
     }
 }
 
@@ -347,6 +376,9 @@ void FeishuProtocol::ConnectToGateway(const std::string& ip, int port) {
         connected_ = false;
         if (ping_timer_) {
             esp_timer_stop(ping_timer_);
+        }
+        if (discovery_task_handle_ != nullptr) {
+            xTaskNotifyGive(discovery_task_handle_);
         }
         if (on_disconnected_) {
             on_disconnected_();
@@ -601,6 +633,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         });
     } else if (type_str == "voice_reply_start") {
         AudioDiagnostics::GetInstance().StartDownlinkSession();
+        Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
         Application::GetInstance().Schedule([display]() {
             Application::GetInstance().SetFeishuAwaitingReply(false);
             Application::GetInstance().SetDeviceState(kDeviceStateSpeaking);
@@ -610,8 +643,11 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
             }
         });
     } else if (type_str == "voice_reply_end") {
+        AudioDiagnostics::GetInstance().EndDownlinkSession();
         Application::GetInstance().Schedule([display]() {
             Application::GetInstance().SetFeishuAwaitingReply(false);
+            Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+            Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
             if (display) {
                 display->SetEmotion("neutral");
                 display->SetStatus(Lang::Strings::FEISHU_CONSOLE_READY);
@@ -772,6 +808,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
                 }
                 msg = msg.substr(0, cut_len) + "...";
             }
+            Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
             Application::GetInstance().Schedule([display, msg]() {
                 Application::GetInstance().DismissAlert();
                 Application::GetInstance().SetFeishuAwaitingReply(false);
@@ -785,6 +822,7 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         Application::GetInstance().Schedule([display]() {
             Application::GetInstance().SetFeishuAwaitingReply(false);
             Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+            Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
             if (display) {
                 display->SetEmotion("neutral");
                 display->SetStatus(Lang::Strings::FEISHU_CONSOLE_READY);

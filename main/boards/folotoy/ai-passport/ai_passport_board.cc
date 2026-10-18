@@ -1843,6 +1843,7 @@ private:
         if (elapsed_us < 250000) {
             app.StopFeishuVoice();
             app.SetFeishuAwaitingReply(false);
+            SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
             if (display_) {
                 display_->ShowNotification("说话时间太短", 1500);
                 SetIdleStatus();
@@ -1852,6 +1853,9 @@ private:
 
         // 直接向飞书服务端送达录音结束帧 (voice_end) 并切换到待命/等待状态
         app.StopFeishuVoice();
+
+        // 提示音反馈：对讲结束并成功投递，播放短促轻快确认音（麦克风已闭合，不会污染录音）
+        app.GetAudioService().PlaySound(Lang::Sounds::OGG_POPUP);
 
         int duration_sec = (int)((elapsed_us + 500000) / 1000000);
         if (duration_sec < 1) duration_sec = 1;
@@ -2204,6 +2208,7 @@ private:
                 ESP_LOGI(TAG, "Barge-in triggered by OK press down!");
                 app.AbortSpeaking(kAbortReasonNone);
                 app.GetAudioService().ResetDecoder();
+                SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
                 if (display_) {
                     display_->ShowNotification("已打断", 1200);
                     SetIdleStatus();
@@ -2224,6 +2229,8 @@ private:
 
             // 4. 如果当前设备处于待命状态，按下瞬间立即启动录音！
             if (state == kDeviceStateIdle || state == kDeviceStateStarting) {
+                // 瞬间进入性能模式，消除 Wi-Fi 射频唤醒延迟与录音初段丢包
+                SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
                 is_recording_active_ = true;
                 is_ptt_mode_ = true; // 先假设为按住对讲，若抬手很快则切为 Toggle
                 wave_frame_ = 0;
@@ -2492,6 +2499,10 @@ public:
         }
         current_brightness_ = user_brightness_;
 
+        // ES8311 硬件模拟前端输入增益调校：设定为 30.0 dB 灵敏度黄金平衡点，确保对讲清晰通透
+        GetAudioCodec()->SetInputGain(30.0f);
+        ESP_LOGI(TAG, "Audio codec input gain set to 30.0 dB for high-sensitivity voice pickup");
+
         Settings settings("display", true);
         settings.SetString("theme", "dark");
         if (display_) {
@@ -2524,16 +2535,20 @@ public:
                 // 超过 15 秒无操作且处于待命状态，自动进入/刷新随身时钟看板
                 if (now - self->last_activity_time_ >= 15 * 1000000LL &&
                     !self->is_recording_active_) {
-                    Application::GetInstance().Schedule([self]() {
-                        self->EnterOrRefreshStandbyClock();
-                    });
+                    // 仅当屏幕未完全息屏时才调度刷新时钟界面，黑屏静默时不消耗 CPU 与 SPI DMA 资源
+                    if (self->current_brightness_ > 0) {
+                        Application::GetInstance().Schedule([self]() {
+                            self->EnterOrRefreshStandbyClock();
+                        });
+                    }
 
                     // 二级休眠：超过 90 秒无操作息屏待机，超过 30 秒微光 20%
                     if (now - self->last_activity_time_ >= 90 * 1000000LL) {
                         if (self->current_brightness_ > 0) {
                             self->current_brightness_ = 0;
                             self->GetBacklight()->SetBrightness(0);
-                            ESP_LOGI(TAG, "Screen turned off due to 90s inactivity");
+                            self->SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+                            ESP_LOGI(TAG, "Screen turned off due to 90s inactivity, Wi-Fi set to LOW_POWER");
                         }
                     } else if (now - self->last_activity_time_ >= 30 * 1000000LL) {
                         uint8_t dim_target = (self->user_brightness_ > 20) ? 20 : 10;
