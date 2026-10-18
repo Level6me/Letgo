@@ -801,8 +801,8 @@ void FeishuProtocol::HandleServerJson(const char* data, size_t len) {
         auto text = cJSON_GetObjectItem(root, "text");
         if (cJSON_IsString(text) && display) {
             std::string msg = text->valuestring;
-            if (msg.size() > 128) {
-                size_t cut_len = 120;
+            if (msg.size() > 1024) {
+                size_t cut_len = 1000;
                 while (cut_len > 0 && (static_cast<unsigned char>(msg[cut_len]) & 0xC0) == 0x80) {
                     cut_len--;
                 }
