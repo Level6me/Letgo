@@ -690,7 +690,7 @@ bool Blufi::start_wifi_scan() {
     m_scan_in_progress = true;
 
     // Get current WiFi mode
-    wifi_mode_t current_mode;
+    wifi_mode_t current_mode = WIFI_MODE_STA;
     esp_err_t err = esp_wifi_get_mode(&current_mode);
 
     if (current_mode == WIFI_MODE_AP) {
@@ -1009,18 +1009,36 @@ void Blufi::_handle_event(esp_blufi_cb_event_t event, esp_blufi_cb_param_t* para
             m_sta_config.sta.bssid_set = true;
             ESP_LOGI(BLUFI_TAG, "Recv STA BSSID");
             break;
-        case ESP_BLUFI_EVENT_RECV_STA_SSID:
-            strncpy((char*)m_sta_config.sta.ssid, (char*)param->sta_ssid.ssid,
-                    param->sta_ssid.ssid_len);
-            m_sta_config.sta.ssid[param->sta_ssid.ssid_len] = '\0';
+        case ESP_BLUFI_EVENT_RECV_STA_SSID: {
+            // The peer-controlled length must be clamped to the 32-byte
+            // wifi_sta_config_t::ssid field, otherwise both the copy and the
+            // terminator write overflow the global config structure.
+            int ssid_len = param->sta_ssid.ssid_len;
+            if (ssid_len < 0) {
+                ssid_len = 0;
+            }
+            if (ssid_len > static_cast<int>(sizeof(m_sta_config.sta.ssid)) - 1) {
+                ssid_len = sizeof(m_sta_config.sta.ssid) - 1;
+            }
+            memcpy(m_sta_config.sta.ssid, param->sta_ssid.ssid, ssid_len);
+            m_sta_config.sta.ssid[ssid_len] = '\0';
             ESP_LOGI(BLUFI_TAG, "Recv STA SSID: %s", m_sta_config.sta.ssid);
             break;
-        case ESP_BLUFI_EVENT_RECV_STA_PASSWD:
-            strncpy((char*)m_sta_config.sta.password, (char*)param->sta_passwd.passwd,
-                    param->sta_passwd.passwd_len);
-            m_sta_config.sta.password[param->sta_passwd.passwd_len] = '\0';
+        }
+        case ESP_BLUFI_EVENT_RECV_STA_PASSWD: {
+            // Same clamp for the 64-byte password field.
+            int passwd_len = param->sta_passwd.passwd_len;
+            if (passwd_len < 0) {
+                passwd_len = 0;
+            }
+            if (passwd_len > static_cast<int>(sizeof(m_sta_config.sta.password)) - 1) {
+                passwd_len = sizeof(m_sta_config.sta.password) - 1;
+            }
+            memcpy(m_sta_config.sta.password, param->sta_passwd.passwd, passwd_len);
+            m_sta_config.sta.password[passwd_len] = '\0';
             ESP_LOGI(BLUFI_TAG, "Recv STA PASSWORD : %s", m_sta_config.sta.password);
             break;
+        }
         case ESP_BLUFI_EVENT_GET_WIFI_LIST: {
             ESP_LOGI(BLUFI_TAG, "BLUFI get wifi list");
             // Case 1: a scan is already in flight (init scan or refresh scan started by

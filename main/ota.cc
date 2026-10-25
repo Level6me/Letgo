@@ -18,6 +18,9 @@
 #endif
 
 #include <cstring>
+#include <cstdlib>
+#include <cctype>
+#include <limits>
 #include <vector>
 #include <sstream>
 #include <algorithm>
@@ -152,11 +155,13 @@ NetworkResult<> Ota::CheckVersion() {
         Settings settings("mqtt", true);
         cJSON *item = NULL;
         cJSON_ArrayForEach(item, mqtt) {
-            if (cJSON_IsString(item)) {
+            // Array elements have item->string == NULL; guard against a
+            // malformed server response to avoid std::string(nullptr).
+            if (cJSON_IsString(item) && item->string != NULL) {
                 if (settings.GetString(item->string) != item->valuestring) {
                     settings.SetString(item->string, item->valuestring);
                 }
-            } else if (cJSON_IsNumber(item)) {
+            } else if (cJSON_IsNumber(item) && item->string != NULL) {
                 if (settings.GetInt(item->string) != item->valueint) {
                     settings.SetInt(item->string, item->valueint);
                 }
@@ -173,11 +178,11 @@ NetworkResult<> Ota::CheckVersion() {
         Settings settings("websocket", true);
         cJSON *item = NULL;
         cJSON_ArrayForEach(item, websocket) {
-            if (cJSON_IsString(item)) {
+            if (cJSON_IsString(item) && item->string != NULL) {
                 if (settings.GetString(item->string) != item->valuestring) {
                     settings.SetString(item->string, item->valuestring);
                 }
-            } else if (cJSON_IsNumber(item)) {
+            } else if (cJSON_IsNumber(item) && item->string != NULL) {
                 if (settings.GetInt(item->string) != item->valueint) {
                     settings.SetInt(item->string, item->valueint);
                 }
@@ -406,7 +411,19 @@ std::vector<int> Ota::ParseVersion(const std::string& version) {
     std::string segment;
     
     while (std::getline(ss, segment, '.')) {
-        versionNumbers.push_back(std::stoi(segment));
+        // C++ exceptions are disabled (CONFIG_COMPILER_CXX_EXCEPTIONS=n), so a
+        // malformed version string from the server would make std::stoi call
+        // std::terminate. Parse with strtoul instead and reject segments that
+        // contain no digits.
+        if (segment.empty() || !std::isdigit(static_cast<unsigned char>(segment[0]))) {
+            return {};
+        }
+        char* end = nullptr;
+        unsigned long value = strtoul(segment.c_str(), &end, 10);
+        constexpr int kMaxVersionNumber = std::numeric_limits<int>::max();
+        versionNumbers.push_back(value > (unsigned long)kMaxVersionNumber
+                                     ? kMaxVersionNumber
+                                     : static_cast<int>(value));
     }
     
     return versionNumbers;
